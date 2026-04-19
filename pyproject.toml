@@ -1,7 +1,7 @@
 [project]
 name = "iplayerdl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Wrapper around yt-dlp and ffmpeg for BBC iPlayer"
 readme = "README.md"
 authors = [
     { name = "Sam Tee", email = "93236986+sam-tee@users.noreply.github.com" }
@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "dacite>=1.9.2",
+    "dotenv>=0.9.9",
     "ffmpeg>=1.4",
     "pysubs2>=1.8.1",
     "tmdbv3api>=1.9.0",

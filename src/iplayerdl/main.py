@@ -1,17 +1,20 @@
 import queue
 import threading
 
+import dotenv
+
 from iplayerdl.config_loader import load_config
 from iplayerdl.download import download_url
 from iplayerdl.transcode import transcode_worker
 
 
 def main():
+    dotenv.load_dotenv()
     config = load_config()
     task_queue = queue.Queue()
     t = threading.Thread(
         target=transcode_worker,
-        args=(task_queue, config.transcode_settings),
+        args=(task_queue, config.transcode_settings, config.pipeline),
         daemon=True,
     )
     t.start()

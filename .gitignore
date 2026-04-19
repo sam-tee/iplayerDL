@@ -12,3 +12,5 @@ wheels/
 download
 transcode
 media
+
+.env
