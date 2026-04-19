@@ -66,37 +66,39 @@ def get_crop_region(file_path: Path, samples: int = 20) -> str | None:
 
 
 def get_accel_params(settings: TranscodeSettings) -> list[str]:
-    if settings.type == "qsv":
+    if settings.encoder == "qsv":
         return [
             "-init_hw_device",
             "qsv=hw",
             "-filter_hw_device",
             "hw",
+            "-hwaccel",
+            "qsv",
         ]
-    elif settings.type == "vaapi":
+    elif settings.encoder == "vaapi":
         return [
             "-hwaccel",
             "vaapi",
+            "-hwaccel_device",
+            str(settings.device),
             "-hwaccel_output_format",
             "vaapi",
-            "-vaapi_device",
-            str(settings.type),
         ]
     else:
         return []
 
 
-def get_crop_params(crop: bool, type: str, file: Path) -> list[str]:
+def get_crop_params(crop: bool, encoder: str, file: Path) -> list[str]:
     if not crop:
         return []
     crop_val = get_crop_region(file)
     if crop_val is None:
         return []
-    if type == "qsv":
+    if encoder == "qsv":
         width, height, cx, cy = crop_val.split(":")
-        return ["-vf", f"hwupload,vpp_qsv=cw={width}:ch={height}:cx={cx}:cy={cy}"]
-    elif type == "vaapi":
-        return ["-vf", f"hwdownload,format=nv12,crop={crop_val},hwupload"]
+        return ["-vf", f"vpp_qsv=cw={width}:ch={height}:cx={cx}:cy={cy}"]
+    elif encoder == "vaapi":
+        return ["-vf", f"procamp_vaapi,crop={crop_val}"]
     else:
         return ["-vf", f"crop={crop_val}"]
 
@@ -111,10 +113,10 @@ def transcode(task: Task, settings: TranscodeSettings) -> int:
     ]
     pre_input = get_accel_params(settings)
     file_input = ["-i", str(task.input_file)]
-    crop_settings = get_crop_params(settings.crop, settings.type, task.input_file)
-    if settings.type == "qsv":
+    crop_settings = get_crop_params(settings.crop, settings.encoder, task.input_file)
+    if settings.encoder == "qsv":
         encoder = "av1_qsv"
-    elif settings.type == "vaapi":
+    elif settings.encoder == "vaapi":
         encoder = "h264_vaapi"
     else:
         encoder = "libx264"
@@ -126,7 +128,7 @@ def transcode(task: Task, settings: TranscodeSettings) -> int:
         "-preset",
         "slow",
         "-look_ahead",
-        "10",
+        "1",
         "-r",
         "30",
         "-c:a",
@@ -178,3 +180,13 @@ def transcode_worker(q: Queue, settings: TranscodeSettings, pipeline: Pipeline):
         if transcode_status == 0:
             move(task, pipeline)
         q.task_done()
+
+
+if __name__ == "__main__":
+    task = Task(
+        input_file=Path("test.mp4"),
+        transcode_file=Path("transcode.mp4"),
+        output_file=Path("media.mp4"),
+    )
+    sett = TranscodeSettings("", 20, "qsv", True)
+    transcode(task, sett)
