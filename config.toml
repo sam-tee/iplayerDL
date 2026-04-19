@@ -1,9 +1,4 @@
 urls = [
-"https://www.bbc.co.uk/iplayer/episodes/p0c3vbrc/conversations-with-friends",
-    "https://www.bbc.co.uk/iplayer/episode/m0018b7h/21-bridges",
-    "https://www.bbc.co.uk/iplayer/episode/b016r10h/the-duchess",
-    "https://www.bbc.co.uk/iplayer/episode/m002t51t/femme",
-    "https://www.bbc.co.uk/iplayer/episode/b0074fp5/insomnia",
     "https://www.bbc.co.uk/iplayer/episode/b007q86z/the-jackal",
     "https://www.bbc.co.uk/iplayer/episode/m002t67f/la-chimera",
     "https://www.bbc.co.uk/iplayer/episode/m0029l6s/letter-to-brezhnev",
@@ -36,3 +31,10 @@ encoder = "qsv" # one of qsv, vaapi, none
 quality = 20
 device = "/dev/dri/renderD128"
 crop = true # whether to remove padding
+
+[permission_settings]
+enable = true #whether to enable changing of user, group, permissions
+file_perms = 664
+dir_perms = 775
+owner = "sam"
+group = "media"

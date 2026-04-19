@@ -31,9 +31,19 @@ class TranscodeSettings:
 
 
 @dataclass
+class Permissions:
+    enable: bool
+    file_perms: int
+    dir_perms: int
+    owner: str | int
+    group: str | int
+
+
+@dataclass
 class Config:
     folders: Folders
     urls: list[str]
     pipeline: Pipeline
     download_settings: dict
     transcode_settings: TranscodeSettings
+    permission_settings: Permissions
