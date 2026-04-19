@@ -24,7 +24,10 @@ def post_download(q: Queue, folders: Folders, dl_path: Path):
         return
     sub_paths = list(dl_path.parent.glob(f"{title}.*.*"))
     for file in sub_paths:
-        convert_file(file, folders.media_dir / f"{media_name}.en.srt")
+        try:
+            convert_file(file, folders.media_dir / f"{media_name}.en.srt")
+        except KeyError:
+            print(f"\033[31mError: Subtitle conversion failed for {file.name}\033[0m")
     q.put(
         Task(
             input_file=dl_path,
