@@ -26,7 +26,7 @@ class Pipeline:
 class TranscodeSettings:
     device: str
     quality: int
-    type: str
+    encoder: str
     crop: bool
 
 
