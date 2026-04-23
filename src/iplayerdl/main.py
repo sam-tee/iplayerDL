@@ -25,6 +25,7 @@ def main():
             url=url,
             opts=config.download_settings,
             folders=config.folders,
+            overrides=config.title_overrides,
         )
     task_queue.join()
     if config.permission_settings.enable:

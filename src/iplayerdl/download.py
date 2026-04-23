@@ -15,10 +15,10 @@ def get_info(url) -> dict:
         return ydl.extract_info(url, download=False)
 
 
-def post_download(q: Queue, folders: Folders, dl_path: Path):
+def post_download(q: Queue, folders: Folders, dl_path: Path, overrides: dict):
     title = dl_path.stem
     print(f"\033[34m[yt-dlp]\033[0m Finished Download: {title}")
-    media_name = get_media_name(title)
+    media_name = get_media_name(title, overrides)
     if media_name is None:
         print(f"\033[31mError: No matching TMDb entry found for {title}\033[0m")
         return
@@ -38,10 +38,7 @@ def post_download(q: Queue, folders: Folders, dl_path: Path):
 
 
 def download_url(
-    q: Queue,
-    url: str,
-    opts: dict | None,
-    folders: Folders,
+    q: Queue, url: str, opts: dict | None, folders: Folders, overrides: dict
 ):
     if opts is None:
         opts = {}
@@ -52,4 +49,4 @@ def download_url(
         for entry in entries:
             ydl.download([entry["webpage_url"]])
             dl_path = Path(ydl.prepare_filename(entry)).resolve()
-            post_download(q, folders, dl_path)
+            post_download(q, folders, dl_path, overrides)

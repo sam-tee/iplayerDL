@@ -5,21 +5,36 @@ from tmdbv3api.exceptions import TMDbException
 tmdb = TMDb()
 
 
-def title2show_data(title: str) -> dict[str, str]:
+def sanitise(input: str) -> str:
+    input = input.replace("’", "'")
+    input = input.replace("？", "?")
+    input = input.replace(", Part One", "(1)")
+    input = input.replace(", Part Two", "(2)")
+    input = input.replace("- Part One", "(1)")
+    input = input.replace("- Part Two", "(2)")
+    return input
+
+
+def title2show_data(title: str, overrides: dict) -> dict[str, str]:
     """
     Converts BBC title of form <Show Name>, Series <>, <Episode Name>
     to show_data dict with keys show_name, series_num, episode_name
     """
-    parts = title.split(", ", maxsplit=3)
+    title = overrides.get(title, title)
+    parts = title.split(", ", maxsplit=2)
     if len(parts) == 3:
         series = parts[1].split(" ")
         return {
             "show_name": parts[0],
             "series_num": series[-1] if series[-1].isnumeric() else "0",
-            "episode_name": parts[2],
+            "episode_name": sanitise(parts[2]),
         }
     else:
-        return {"show_name": parts[0], "series_num": "0", "episode_name": parts[-1]}
+        return {
+            "show_name": parts[0],
+            "series_num": "0",
+            "episode_name": sanitise(parts[-1]),
+        }
 
 
 def find_series(show_data: dict) -> str | None:
@@ -43,7 +58,7 @@ def find_series(show_data: dict) -> str | None:
         except TMDbException:
             specials = []
         for ep in list(episodes) + list(specials):
-            if ep.name.lower() == show_data["episode_name"].lower():
+            if str(ep.name.lower()).startswith(show_data["episode_name"].lower()):
                 name_year = f"{show.name} ({show.first_air_date.split('-')[0]})"
                 s_num = ep.season_number
                 season = f"Season {s_num:02d}" if s_num != 0 else "Specials"
@@ -76,8 +91,8 @@ def find_movie(title: str) -> str | None:
     return f"film/{movie_name}/{movie_name}"
 
 
-def get_media_name(title: str) -> str | None:
-    tv_name = find_series(title2show_data(title))
+def get_media_name(title: str, overrides: dict) -> str | None:
+    tv_name = find_series(title2show_data(title, overrides))
     if tv_name is not None:
         return tv_name
     movie_name = find_movie(title)
@@ -86,6 +101,21 @@ def get_media_name(title: str) -> str | None:
 
 if __name__ == "__main__":
     dotenv.load_dotenv()
-    title = "Doctor Who, Series 13, The Vanquishers"
-    data = title2show_data(title)
-    print(get_media_name(title))
+    titles = [
+        "Doctor Who (2005–2022), Series 2, Love and Monsters",
+        "Doctor Who (2005–2022), The End of Time - Part Two",
+    ]
+    overrides = {
+        "Doctor Who (2005–2022), Series 12, Spyfall, Part 2": "Doctor Who (2005–2022), Series 12, Spyfall (2)",
+        "Doctor Who (2005–2022), Series 12, Spyfall, Part 1": "Doctor Who (2005–2022), Series 12, Spyfall (1)",
+        "Doctor Who (2005–2022), Series 9, New Series Prologue": "Doctor Who (2005–2022), Season 9 Prologue",
+        "Doctor Who (2005–2022), Mini Episode - The Night of the Doctor": "Doctor Who (2005–2022), The Night of the Doctor",
+        "Doctor Who (2005–2022), The Doctor, the Widow and the Wardrobe": "Doctor Who (2005–2022), , The Doctor, the Widow and the Wardrobe",
+        "Doctor Who (2005–2022), Series 2, Love and Monsters": "Doctor Who (2005–2022), Series 2, Love & Monsters",
+        # "Doctor Who (2005–2022), The End of Time - Part Two": "Doctor Who (2005–2022), The End of Time (2)",
+    }
+    for title in titles:
+        print(title.split(", ", maxsplit=2))
+        data = title2show_data(title, overrides)
+        print(data)
+        print(get_media_name(title, overrides))

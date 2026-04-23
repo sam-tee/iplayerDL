@@ -47,3 +47,4 @@ class Config:
     download_settings: dict
     transcode_settings: TranscodeSettings
     permission_settings: Permissions
+    title_overrides: dict
