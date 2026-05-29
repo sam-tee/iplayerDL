@@ -183,10 +183,15 @@ def transcode_worker(q: Queue, settings: TranscodeSettings, pipeline: Pipeline):
 
 
 if __name__ == "__main__":
-    task = Task(
-        input_file=Path("test.mp4"),
-        transcode_file=Path("transcode.mp4"),
-        output_file=Path("media.mp4"),
-    )
-    sett = TranscodeSettings("", 20, "qsv", True)
-    transcode(task, sett)
+    vids = []
+    for f in Path("/home/sam/hardDrive/media/dvd").rglob("*"):
+        if f.suffix in [".mkv", ".mp4"]:
+            test = f.relative_to("/home/sam/hardDrive/media/dvd")
+            task = Task(
+                input_file=f,
+                transcode_file="/home/sam/hardDrive/media/film" / test,
+                output_file=f,
+            )
+            sett = TranscodeSettings("", 20, "qsv", True)
+            transcode(task, sett)
+            f.unlink()

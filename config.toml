@@ -1,12 +1,5 @@
 urls = [
-    "https://www.bbc.co.uk/iplayer/episode/b007q86z/the-jackal",
-    "https://www.bbc.co.uk/iplayer/episode/m002t67f/la-chimera",
-    "https://www.bbc.co.uk/iplayer/episode/m0029l6s/letter-to-brezhnev",
-    "https://www.bbc.co.uk/iplayer/episode/m002273h/the-mask",
-    "https://www.bbc.co.uk/iplayer/episode/b00z0f1d/the-prestige",
-    "https://www.bbc.co.uk/iplayer/episode/b06vyf02/brooklyn",
-"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022",
-"https://www.bbc.co.uk/iplayer/episodes/b045fz8r/peaky-blinders",
+    "https://www.bbc.co.uk/iplayer/episode/m002hdd8/the-silence-of-the-lambs"
 ]
 
 [folders]
@@ -38,3 +31,16 @@ file_perms = 664
 dir_perms = 775
 owner = "sam"
 group = "media"
+
+[title_overrides]
+# put iplayer title and title for tmdb
+"Doctor Who (2005–2022), Series 9, New Series Prologue" = "Doctor Who (2005–2022), Season 9 Prologue"
+"Doctor Who (2005–2022), Mini Episode - The Night of the Doctor" = "Doctor Who (2005–2022), The Night of the Doctor"
+"Doctor Who (2005–2022), The Doctor, the Widow and the Wardrobe" = "Doctor Who (2005–2022), , The Doctor, the Widow and the Wardrobe"
+"Doctor Who (2005–2022), Series 2, Love and Monsters" = "Doctor Who (2005–2022), Series 2, Love & Monsters"
+"Peaky Blinders, Series 5, Mr Jones" = "Peaky Blinders, Series 5, Mr. Jones"
+"Suits, Series 7, Goodbye" = "Suits, Series 7, Good-bye"
+"Suits, Series 5, Self Defence" = "Suits, Series 5, Self Defense"
+"Suits, Series 2, Zane vs Zane" = "Suits, Series 2, Zane vs. Zane"
+"Suits, Series 1, The Shelf Life" = "Suits, Series 1, Shelf Life"
+"Trying, Series 2, Maddest, Sweetest Thing" = "Trying, Series 2, Maddest Sweetest Thing"
