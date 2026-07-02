@@ -9,7 +9,7 @@ from iplayerdl.fix_perms import fix_perms
 from iplayerdl.transcode import transcode_worker
 
 
-def main():
+def cli():
     dotenv.load_dotenv()
     config = load_config()
     task_queue = queue.Queue()
@@ -33,4 +33,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    cli()

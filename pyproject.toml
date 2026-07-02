@@ -17,6 +17,9 @@ dependencies = [
     "yt-dlp>=2026.3.17",
 ]
 
+[project.scripts]
+iplayerdl = "iplayerdl:main"
+
 [build-system]
 requires = ["uv_build>=0.11.4,<0.12.0"]
 build-backend = "uv_build"
