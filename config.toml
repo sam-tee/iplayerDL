@@ -1,5 +1,6 @@
 urls = [
 "https://www.bbc.co.uk/iplayer/episode/m002ydyh/me-before-you"
+"https://gem.cbc.ca/the-f-word"
 ]
 
 [folders]
@@ -12,6 +13,7 @@ transcode = true  # whether to transcode the downloaded files
 delete_downloads = true #whether to delete full downloads
 
 [download_settings]
+format =  "bv*+ba[language=en]/bv*+ba/best"
 subtitleslangs = ["en.*"]
 writesubtitles = true
 quiet = true
