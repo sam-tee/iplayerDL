@@ -1,5 +1,5 @@
 urls = [
-    "https://www.bbc.co.uk/iplayer/episode/m002hdd8/the-silence-of-the-lambs"
+"https://www.bbc.co.uk/iplayer/episode/m002ydyh/me-before-you"
 ]
 
 [folders]
@@ -12,11 +12,10 @@ transcode = true  # whether to transcode the downloaded files
 delete_downloads = true #whether to delete full downloads
 
 [download_settings]
-allsubtitles = true
+subtitleslangs = ["en.*"]
 writesubtitles = true
 quiet = true
 noprogress = false
-outtmpl = "%(title)s.%(ext)s"
 ratelimit = 1_000_000
 
 [transcode_settings]
