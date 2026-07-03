@@ -8,6 +8,10 @@ from queue import Queue
 from iplayerdl.classes import Pipeline, Task, TranscodeSettings
 
 
+def mkPath(path: Path) -> Path:
+    return path.expanduser().resolve()
+
+
 def get_video_duration(file_path: Path) -> float:
     """Get the duration of the video in seconds using ffprobe."""
     cmd: list[str] = [
@@ -18,7 +22,7 @@ def get_video_duration(file_path: Path) -> float:
         "format=duration",
         "-of",
         "json",
-        str(file_path),
+        str(mkPath(file_path)),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     data = json.loads(result.stdout)
@@ -32,7 +36,7 @@ def detect_crop_at_timestamp(file_path: Path, timestamp: float) -> str | None:
         "-ss",
         str(timestamp),
         "-i",
-        str(file_path),
+        str(mkPath(file_path)),
         "-frames:v",
         "20",
         "-vf",
@@ -65,8 +69,8 @@ def get_crop_region(file_path: Path, samples: int = 20) -> str | None:
         return None
 
 
-def get_accel_params(settings: TranscodeSettings) -> list[str]:
-    if settings.encoder == "qsv":
+def get_accel_params(encoder: str, device: str) -> list[str]:
+    if encoder == "qsv":
         return [
             "-init_hw_device",
             "qsv=hw",
@@ -75,15 +79,17 @@ def get_accel_params(settings: TranscodeSettings) -> list[str]:
             "-hwaccel",
             "qsv",
         ]
-    elif settings.encoder == "vaapi":
+    elif encoder == "vaapi":
         return [
             "-hwaccel",
             "vaapi",
             "-hwaccel_device",
-            str(settings.device),
+            str(device),
             "-hwaccel_output_format",
             "vaapi",
         ]
+    elif encoder == "apple":
+        return ["-hwaccel", "videotoolbox"]
     else:
         return []
 
@@ -103,7 +109,49 @@ def get_crop_params(crop: bool, encoder: str, file: Path) -> list[str]:
         return ["-vf", f"crop={crop_val}"]
 
 
-def transcode(task: Task, settings: TranscodeSettings) -> int:
+def convert_quality(quality: int) -> str:
+    scaled = round(100 * (1 - quality / 64))
+    return str(scaled)
+
+
+def get_encoder_params(encoder: str, quality: int) -> list[str]:
+    if encoder == "qsv":
+        encoder_params = [
+            "-c:v",
+            "av1_qsv",
+            "-global_quality",
+            str(quality),
+            "-look_ahead",
+            "1",
+        ]
+    elif encoder == "vaapi":
+        encoder_params = [
+            "-c:v",
+            "h264_vaapi",
+            "-global_quality",
+            str(quality),
+        ]
+    elif encoder == "apple":
+        encoder_params = [
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            convert_quality(quality),
+        ]
+    else:
+        encoder_params = [
+            "-c:v",
+            "libsvtav1",
+            "-global_quality",
+            str(quality),
+        ]
+    return encoder_params
+
+
+def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> list[str]:
+    """
+    Collects all parameters from given settings
+    """
     base_command: list[str] = [
         "ffmpeg",
         "-hide_banner",
@@ -111,39 +159,39 @@ def transcode(task: Task, settings: TranscodeSettings) -> int:
         "error",
         "-stats",
     ]
-    pre_input = get_accel_params(settings)
-    file_input = ["-i", str(task.input_file)]
-    crop_settings = get_crop_params(settings.crop, settings.encoder, task.input_file)
-    if settings.encoder == "qsv":
-        encoder = "av1_qsv"
-    elif settings.encoder == "vaapi":
-        encoder = "h264_vaapi"
-    else:
-        encoder = "libx264"
+    pre_input = get_accel_params(settings.encoder, settings.device)
+    file_input = ["-i", str(mkPath(file))]
+    crop_settings = get_crop_params(settings.crop, settings.encoder, file)
+    encoder_settings = get_encoder_params(settings.encoder, settings.quality)
     video_params = [
-        "-c:v",
-        encoder,
-        "-global_quality",
-        str(settings.quality),
-        "-preset",
-        "slow",
-        "-look_ahead",
-        "1",
         "-r",
         "30",
         "-c:a",
         "copy",
-        str(task.transcode_file.resolve()),
+        str(mkPath(output_file)),
         "-y",
     ]
-    task.transcode_file.parent.mkdir(exist_ok=True, parents=True)
-    cmd = base_command + pre_input + file_input + crop_settings + video_params
+    cmd = (
+        base_command
+        + pre_input
+        + file_input
+        + crop_settings
+        + encoder_settings
+        + video_params
+    )
+    return cmd
+
+
+def transcode(task: Task, settings: TranscodeSettings) -> int:
+    transcode_file = mkPath(task.transcode_file)
+    transcode_file.parent.mkdir(exist_ok=True, parents=True)
+    cmd = get_params(settings, task.input_file, transcode_file)
     try:
         subprocess.run(cmd, capture_output=True, check=True, text=True)
-        print(f"\033[32m[ffmpeg]\033[0m Transcoded: {task.transcode_file.name}")
+        print(f"\033[32m[ffmpeg]\033[0m Transcoded: {transcode_file.name}")
         return 0
     except subprocess.CalledProcessError as e:
-        task.transcode_file.unlink(missing_ok=True)
+        transcode_file.unlink(missing_ok=True)
         print(f"\033[32m[ffmpeg]\033[0m \033[31mError: {e}\033[0m")
         return 1
 
@@ -183,15 +231,11 @@ def transcode_worker(q: Queue, settings: TranscodeSettings, pipeline: Pipeline):
 
 
 if __name__ == "__main__":
-    vids = []
-    for f in Path("/home/sam/hardDrive/media/dvd").rglob("*"):
-        if f.suffix in [".mkv", ".mp4"]:
-            test = f.relative_to("/home/sam/hardDrive/media/dvd")
-            task = Task(
-                input_file=f,
-                transcode_file="/home/sam/hardDrive/media/film" / test,
-                output_file=f,
-            )
-            sett = TranscodeSettings("", 20, "qsv", True)
-            transcode(task, sett)
-            f.unlink()
+    task = Task(
+        input_file=Path("~/temp/The Nice Guys.mp4"),
+        output_file=Path("~/temp/transcoded/The Nice Guys.mp4"),
+        transcode_file=Path("~/temp/temp/temp.mp4"),
+    )
+    sett = TranscodeSettings("", 20, "apple", True)
+    print(" ".join(get_params(sett, task.input_file, task.transcode_file)))
+    transcode(task, sett)

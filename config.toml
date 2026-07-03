@@ -1,11 +1,11 @@
 urls = [
-"https://www.bbc.co.uk/iplayer/episode/m002ydyh/me-before-you"
-"https://gem.cbc.ca/the-f-word"
+"https://www.bbc.co.uk/iplayer/episodes/p0gglvqn/doctor-who",
+"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022"
 ]
 
 [folders]
 download_dir = "./download" # where files will be downloaded to
-media_dir = "../media"       # where files will be written to after transcode
+media_dir = "./media"       # where files will be written to after transcode
 transcode_dir = "./transcode" # where temp transcode files will be
 
 [pipeline]
@@ -18,10 +18,11 @@ subtitleslangs = ["en.*"]
 writesubtitles = true
 quiet = true
 noprogress = false
-ratelimit = 1_000_000
+#ratelimit = 1_000_000
+format = "bv+ba[language^=en]/bv+ba/best"
 
 [transcode_settings]
-encoder = "qsv" # one of qsv, vaapi, none
+encoder = "none" # one of qsv, vaapi, none
 quality = 20
 device = "/dev/dri/renderD128"
 crop = true # whether to remove padding

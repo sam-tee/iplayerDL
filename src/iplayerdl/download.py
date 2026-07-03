@@ -45,6 +45,7 @@ def download_cbc(info: dict, opts: dict, q: Queue, folders: Folders):
     opts["username"] = os.getenv("CBC_EMAIL")
     opts["password"] = os.getenv("CBC_PASSWORD")
     if info["title"] == info["episode"]:
+        media_type = "film"
         if info.get("release_year") is not None:
             opts["outtmpl"] = (
                 "%(title)s (%(release_year)s)/%(title)s (%(release_year)s).%(ext)s"
@@ -52,6 +53,7 @@ def download_cbc(info: dict, opts: dict, q: Queue, folders: Folders):
         else:
             opts["outtmpl"] = "%(title)s/%(title)s.%(ext)s"
     else:
+        media_type = "tv"
         opts["outtmpl"] = (
             "%(series)s (%(release_year)s)/Season %(season_number)02d/%(series)s (%(release_year)s) - S%(season_number)02dE%(episode_number)02d - %(title)s.%(ext)s"
         )
@@ -62,8 +64,8 @@ def download_cbc(info: dict, opts: dict, q: Queue, folders: Folders):
         q.put(
             Task(
                 input_file=dl_path,
-                transcode_file=folders.transcode_dir / media_path,
-                output_file=folders.media_dir / media_path,
+                transcode_file=folders.transcode_dir / media_type / media_path,
+                output_file=folders.media_dir / media_type / media_path,
             )
         )
 
