@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from threading import BoundedSemaphore
 
 
 @dataclass
@@ -7,6 +8,7 @@ class Task:
     input_file: Path
     transcode_file: Path
     output_file: Path
+    download_slot: BoundedSemaphore | None = None
 
 
 @dataclass
@@ -20,6 +22,7 @@ class Folders:
 class Pipeline:
     transcode: bool
     delete_downloads: bool
+    max_non_transcoded: int | None = None
 
 
 @dataclass

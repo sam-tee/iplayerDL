@@ -258,13 +258,17 @@ def transcode_worker(q: Queue, settings: TranscodeSettings, pipeline: Pipeline):
         task: Task = q.get()
         if task is None:
             break
-        if pipeline.transcode:
-            transcode_status = transcode(task, settings)
-        else:
-            transcode_status = mimic_transcode(task)
-        if transcode_status == 0:
-            move(task, pipeline)
-        q.task_done()
+        try:
+            if pipeline.transcode:
+                transcode_status = transcode(task, settings)
+            else:
+                transcode_status = mimic_transcode(task)
+            if transcode_status == 0:
+                move(task, pipeline)
+        finally:
+            if task.download_slot is not None:
+                task.download_slot.release()
+            q.task_done()
 
 
 if __name__ == "__main__":

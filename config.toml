@@ -11,6 +11,7 @@ transcode_dir = "./transcode" # where temp transcode files will be
 [pipeline]
 transcode = true  # whether to transcode the downloaded files
 delete_downloads = true #whether to delete full downloads
+max_non_transcoded = 5 # max full-quality downloads waiting for transcode/move at once
 
 [download_settings]
 format =  "bv*+ba[language=en]/bv*+ba/best"
