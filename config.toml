@@ -5,7 +5,7 @@ urls = [
 
 [folders]
 download_dir = "./download" # where files will be downloaded to
-media_dir = "./media"       # where files will be written to after transcode
+media_dir = "u410:/var/lib/drive/media"       # where files will be written to after transcode
 transcode_dir = "./transcode" # where temp transcode files will be
 
 [pipeline]
@@ -19,7 +19,6 @@ writesubtitles = true
 quiet = true
 noprogress = false
 #ratelimit = 1_000_000
-format = "bv+ba[language^=en]/bv+ba/best"
 
 [transcode_settings]
 encoder = "none" # one of qsv, vaapi, none
