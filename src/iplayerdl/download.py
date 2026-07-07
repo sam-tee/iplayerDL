@@ -44,7 +44,11 @@ def post_download(
     if media_name is None:
         print(f"\033[31mError: No matching TMDb entry found for {title}\033[0m")
         return False
-    sub_paths = list(dl_path.parent.glob(f"{title}.*.*"))
+    sub_paths = [
+        path
+        for path in dl_path.parent.glob(f"{title}.*.*")
+        if not path.name.endswith(".converted.srt")
+    ]
     for file in sub_paths:
         try:
             convert_file(file, folders.media_dir / f"{media_name}.en.srt")
