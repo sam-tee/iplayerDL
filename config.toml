@@ -1,6 +1,10 @@
 urls = [
-"https://www.bbc.co.uk/iplayer/episodes/p0gglvqn/doctor-who",
-"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022"
+"https://www.bbc.co.uk/iplayer/episode/m001tfnl/doctor-who-christmas-special-the-church-on-ruby-road",
+"https://www.bbc.co.uk/iplayer/episode/m002c5lx/doctor-who-season-2-5-the-story-and-the-engine?seriesId=p0gglvqn-structural-3-m0029db6",
+"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-4-b009wxzy",
+"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-3-b006v193",
+"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-2-b006v18m",
+"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-1-b007vvcq"
 ]
 
 [folders]
@@ -36,6 +40,10 @@ group = "media"
 
 [title_overrides]
 # put iplayer title and title for tmdb
+"Doctor Who, Christmas Special： The Church on Ruby Road" = "Doctor Who, Specials, The Church on Ruby Road"
+"Doctor Who, Season 2, The Story and the Engine" = "Doctor Who, Season 2, The Story & the Engine"
+"Doctor Who (2005–2022), Series 12, Spyfall, Part 2" = "Doctor Who (2005–2022), Series 12, Spyfall (2)"
+"Doctor Who (2005–2022), Series 12, Spyfall, Part 1" = "Doctor Who (2005–2022), Series 12, Spyfall (1)"
 "Doctor Who (2005–2022), Series 9, New Series Prologue" = "Doctor Who (2005–2022), Season 9 Prologue"
 "Doctor Who (2005–2022), Mini Episode - The Night of the Doctor" = "Doctor Who (2005–2022), The Night of the Doctor"
 "Doctor Who (2005–2022), The Doctor, the Widow and the Wardrobe" = "Doctor Who (2005–2022), , The Doctor, the Widow and the Wardrobe"
