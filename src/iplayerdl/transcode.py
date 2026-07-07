@@ -1,48 +1,16 @@
 import json
 import re
-import shlex
 import shutil
 import subprocess
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from queue import Queue
 
 from iplayerdl.classes import Pipeline, Task, TranscodeSettings
+from iplayerdl.file_move import move_file
 
 
 def mkPath(path: Path) -> Path:
     return path.expanduser().resolve()
-
-
-@dataclass
-class RemotePath:
-    host: str
-    path: str
-
-
-def parse_remote_path(path: Path) -> RemotePath | None:
-    """
-    Detect paths of the form <host>:<path>.
-    """
-    path_str = str(path)
-    host, sep, remote_path = path_str.partition(":")
-    if not sep or not host or "/" in host or not remote_path:
-        return None
-    return RemotePath(host=host, path=remote_path)
-
-
-def remote_parent(path: str) -> str:
-    return str(PurePosixPath(path).parent)
-
-
-def move_remote(src: Path, dst: RemotePath):
-    cmd = (
-        f"mkdir -p -- {shlex.quote(remote_parent(dst.path))} "
-        f"&& cat > {shlex.quote(dst.path)}"
-    )
-    with open(src.resolve(), "rb") as f:
-        subprocess.run(["ssh", dst.host, cmd], stdin=f, check=True)
-    src.unlink()
 
 
 def get_video_duration(file_path: Path) -> float:
@@ -241,12 +209,7 @@ def mimic_transcode(task: Task):
 
 
 def move(task: Task, pipeline: Pipeline):
-    remote_output = parse_remote_path(task.output_file)
-    if remote_output is None:
-        task.output_file.parent.mkdir(exist_ok=True, parents=True)
-        shutil.move(task.transcode_file.resolve(), task.output_file.resolve())
-    else:
-        move_remote(task.transcode_file, remote_output)
+    move_file(task.transcode_file, task.output_file)
     print(f"\033[36m[sorter]\033[0m Moved: {task.transcode_file} -> {task.output_file}")
     if pipeline.delete_downloads:
         task.input_file.unlink(missing_ok=True)
