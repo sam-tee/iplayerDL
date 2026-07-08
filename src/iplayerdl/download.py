@@ -74,7 +74,7 @@ def download_cbc(
 ):
     opts["username"] = os.getenv("CBC_EMAIL")
     opts["password"] = os.getenv("CBC_PASSWORD")
-    if info["title"] == info["episode"]:
+    if info["series"] == info["title"]:
         media_type = "film"
         if info.get("release_year") is not None:
             opts["outtmpl"] = (
@@ -85,7 +85,7 @@ def download_cbc(
     else:
         media_type = "tv"
         opts["outtmpl"] = (
-            "%(series)s (%(release_year)s)/Season %(season_number)02d/%(series)s (%(release_year)s) - S%(season_number)02dE%(episode_number)02d - %(title)s.%(ext)s"
+            "%(series)s/Season %(season_number)02d/%(series)s - S%(season_number)02dE%(episode_number)02d - %(title)s.%(ext)s"
         )
     queued = False
     acquire_download_slot(download_slots)
