@@ -71,9 +71,11 @@ def download_cbc(
     q: Queue,
     folders: Folders,
     download_slots: BoundedSemaphore | None = None,
-):
+) -> None:
     opts["username"] = os.getenv("CBC_EMAIL")
     opts["password"] = os.getenv("CBC_PASSWORD")
+    if info["title"] == "Trailer":
+        return
     if info["series"] == info["title"]:
         media_type = "film"
         if info.get("release_year") is not None:
@@ -115,7 +117,7 @@ def download_generic(
     folders: Folders,
     overrides: dict,
     download_slots: BoundedSemaphore | None = None,
-):
+) -> None:
     opts["outtmpl"] = "%(title)s.%(ext)s"
     queued = False
     acquire_download_slot(download_slots)
@@ -128,6 +130,18 @@ def download_generic(
         if not queued:
             release_download_slot(download_slots)
 
+def download(
+    entry: dict,
+    opts: dict,
+    q: Queue,
+    folders: Folders,
+    overrides: dict,
+    download_slots: BoundedSemaphore | None = None,
+) -> None:
+    if str(entry["webpage_url"]).startswith("https://gem.cbc.ca"):
+        download_cbc(entry, opts, q, folders, download_slots)
+    else:
+        download_generic(entry, opts, q, folders, overrides, download_slots)
 
 def download_url(
     q: Queue,
@@ -146,7 +160,7 @@ def download_url(
     info = get_info(url, opts)
     entries = info.get("entries", [info])
     for entry in entries:
-        if str(entry["webpage_url"]).startswith("https://gem.cbc.ca"):
-            download_cbc(entry, opts, q, folders, download_slots)
+        if entry.get("formats") is not None:
+            download(entry, opts, q, folders, download_slots)
         else:
-            download_generic(entry, opts, q, folders, overrides, download_slots)
+            download_url(q, entry["webpage_url"], opts, folders, overrides, download_slots)
