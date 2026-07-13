@@ -130,6 +130,7 @@ def download_generic(
         if not queued:
             release_download_slot(download_slots)
 
+
 def download(
     entry: dict,
     opts: dict,
@@ -142,6 +143,7 @@ def download(
         download_cbc(entry, opts, q, folders, download_slots)
     else:
         download_generic(entry, opts, q, folders, overrides, download_slots)
+
 
 def download_url(
     q: Queue,
@@ -161,6 +163,8 @@ def download_url(
     entries = info.get("entries", [info])
     for entry in entries:
         if entry.get("formats") is not None:
-            download(entry, opts, q, folders, download_slots)
+            download(entry, opts, q, folders, overrides, download_slots)
         else:
-            download_url(q, entry["webpage_url"], opts, folders, overrides, download_slots)
+            download_url(
+                q, entry["webpage_url"], opts, folders, overrides, download_slots
+            )

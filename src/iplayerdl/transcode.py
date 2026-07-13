@@ -203,7 +203,7 @@ def mimic_transcode(task: Task):
     """
     input_file = mkPath(task.input_file)
     transcode_file = mkPath(task.transcode_file)
-    transcode_file.parent.mkdir(exist_ok=True,parents=True)
+    transcode_file.parent.mkdir(exist_ok=True, parents=True)
     shutil.copy(input_file, transcode_file)
     print(
         f"\033[32m[ffmpeg]\033[0m Transcode is False. Copied {task.input_file} instead"
