@@ -8,6 +8,7 @@ tmdb = TMDb()
 def sanitise(input: str) -> str:
     input = input.replace("’", "'")
     input = input.replace("？", "?")
+    input = input.replace("：", ":")
     input = input.replace(", Part One", "(1)")
     input = input.replace(", Part Two", "(2)")
     input = input.replace("- Part One", "(1)")

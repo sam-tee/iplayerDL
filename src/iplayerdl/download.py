@@ -21,7 +21,7 @@ def release_download_slot(download_slots: BoundedSemaphore | None):
         download_slots.release()
 
 
-def get_info(url: str, opts: dict | None = None) -> dict:
+def get_info(url: str, opts: dict | None = None) -> dict | None:
     """Downloads information from url"""
     if opts is None:
         opts = {}
@@ -160,6 +160,8 @@ def download_url(
         opts["password"] = os.getenv("CBC_PASSWORD")
     opts["paths"] = {"home": str(folders.download_dir.resolve())}
     info = get_info(url, opts)
+    if info is None:
+        return
     entries = info.get("entries", [info])
     for entry in entries:
         if entry.get("formats") is not None:
