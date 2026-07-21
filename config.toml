@@ -1,15 +1,10 @@
 urls = [
-"https://www.bbc.co.uk/iplayer/episode/m001tfnl/doctor-who-christmas-special-the-church-on-ruby-road",
-"https://www.bbc.co.uk/iplayer/episode/m002c5lx/doctor-who-season-2-5-the-story-and-the-engine?seriesId=p0gglvqn-structural-3-m0029db6",
-"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-4-b009wxzy",
-"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-3-b006v193",
-"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-2-b006v18m",
-"https://www.bbc.co.uk/iplayer/episodes/b006q2x0/doctor-who-20052022?seriesId=b006q2x0-structural-1-b007vvcq"
 ]
+
 
 [folders]
 download_dir = "./download" # where files will be downloaded to
-media_dir = "u410:/var/lib/drive/media"       # where files will be written to after transcode
+media_dir = "u410:/mnt/data/media"       # where files will be written to after transcode
 transcode_dir = "./transcode" # where temp transcode files will be
 
 [pipeline]
@@ -23,6 +18,8 @@ subtitleslangs = ["en.*"]
 writesubtitles = true
 quiet = true
 noprogress = false
+check_formats = true
+ignoreerrors= "only_download"
 #ratelimit = 1_000_000
 
 [transcode_settings]
@@ -31,12 +28,9 @@ quality = 20
 device = "/dev/dri/renderD128"
 crop = true # whether to remove padding
 
-[permission_settings]
-enable = true #whether to enable changing of user, group, permissions
-file_perms = 664
-dir_perms = 775
-owner = "sam"
-group = "media"
+[ntfy]
+url_base = "https://ntfy.akhlus.uk/"
+topic = "iplayerDL"
 
 [title_overrides]
 # put iplayer title and title for tmdb

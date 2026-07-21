@@ -34,12 +34,9 @@ class TranscodeSettings:
 
 
 @dataclass
-class Permissions:
-    enable: bool
-    file_perms: int
-    dir_perms: int
-    owner: str | int
-    group: str | int
+class NtfyConfig:
+    url_base: str
+    topic: str
 
 
 @dataclass
@@ -49,5 +46,5 @@ class Config:
     pipeline: Pipeline
     download_settings: dict
     transcode_settings: TranscodeSettings
-    permission_settings: Permissions
     title_overrides: dict
+    ntfy: NtfyConfig
