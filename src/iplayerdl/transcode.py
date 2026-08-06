@@ -168,7 +168,7 @@ def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> li
         "-r",
         "30",
         "-c:a",
-        "copy",
+        "aac",
         str(mkPath(output_file)),
         "-y",
     ]
@@ -184,6 +184,8 @@ def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> li
 
 
 def transcode(task: Task, settings: TranscodeSettings) -> int:
+    if not task.input_file.exists():
+        return 1
     transcode_file = mkPath(task.transcode_file)
     transcode_file.parent.mkdir(exist_ok=True, parents=True)
     cmd = get_params(settings, task.input_file, transcode_file)
@@ -202,6 +204,8 @@ def mimic_transcode(task: Task):
     Runs when transcode is set to false and just copies the input file to transcode folder
     """
     input_file = mkPath(task.input_file)
+    if not input_file.exists():
+        return 1
     transcode_file = mkPath(task.transcode_file)
     transcode_file.parent.mkdir(exist_ok=True, parents=True)
     shutil.copy(input_file, transcode_file)

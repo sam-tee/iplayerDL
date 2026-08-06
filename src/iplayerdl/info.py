@@ -13,6 +13,14 @@ def sanitise(input: str) -> str:
     input = input.replace(", Part Two", "(2)")
     input = input.replace("- Part One", "(1)")
     input = input.replace("- Part Two", "(2)")
+    input = input.replace(", Part 1", "(1)")
+    input = input.replace(", Part 2", "(2)")
+    input = input.replace("- Part 1", "(1)")
+    input = input.replace("- Part 2", "(2)")
+    input = input.replace(": Part One", "(1)")
+    input = input.replace(": Part Two", "(2)")
+    input = input.replace(": Part 1", "(1)")
+    input = input.replace(": Part 2", "(2)")
     return input
 
 
@@ -59,7 +67,14 @@ def find_series(show_data: dict) -> str | None:
         except TMDbException:
             specials = []
         for ep in list(episodes) + list(specials):
-            if str(ep.name.lower()).startswith(show_data["episode_name"].lower()):
+            ep_name_comp, ep_name = (
+                str(ep.name).lower(),
+                show_data["episode_name"].lower(),
+            )
+            if "episode" in ep_name:
+                if ep_name != ep_name_comp:
+                    continue
+            if (ep_name in ep_name_comp) or (ep_name_comp in ep_name):
                 name_year = f"{show.name} ({show.first_air_date.split('-')[0]})"
                 s_num = ep.season_number
                 season = f"Season {s_num:02d}" if s_num != 0 else "Specials"

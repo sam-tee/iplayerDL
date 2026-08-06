@@ -1,4 +1,14 @@
 urls = [
+  "https://gem.cbc.ca/killing-eve",
+  "https://gem.cbc.ca/orphan-black",
+  "https://gem.cbc.ca/mad-men",
+  "https://gem.cbc.ca/the-marvelous-mrs-maisel",
+  "https://gem.cbc.ca/the-expanse",
+  "https://gem.cbc.ca/its-a-sin",
+  "https://gem.cbc.ca/ghosts",
+  "https://gem.cbc.ca/kims-convenience",
+  "https://gem.cbc.ca/luther",
+  "https://gem.cbc.ca/normal-people",
 ]
 
 
@@ -21,6 +31,7 @@ noprogress = false
 check_formats = true
 ignoreerrors= "only_download"
 #ratelimit = 1_000_000
+#skip_download = true
 
 [transcode_settings]
 encoder = "none" # one of qsv, vaapi, none
@@ -34,6 +45,20 @@ topic = "iplayerDL"
 
 [title_overrides]
 # put iplayer title and title for tmdb
+"What We Do in the Shadows, Series 6, PI Undercover： New York" = "What We Do in the Shadows, Series 6, P.I. Undercover: New York"
+"What We Do in the Shadows, Series 3, The Wellness Centre" = "What We Do in the Shadows, Series 3, The Wellness Center"
+"What We Do in the Shadows, Series 2, Brain Scrambles" = "What We Do in the Shadows, Series 2, Brain Scramblies"
+"Merlin, Series 4, The Sword in the Stone： Part One" = "Merlin, Series 4, The Sword in the Stone (1)"
+"Merlin, Series 4, The Sword in the Stone： Part Two" = "Merlin, Series 4, The Sword in the Stone (2)"
+"The Thick of It, Series 4, Episode 1" = "The Thick of It, Series 4, Networked Nation"
+"The Thick of It, Series 4, Episode 2" = "The Thick of It, Series 4, New Advisor"
+"The Thick of It, Series 4, Episode 3" = "The Thick of It, Series 4, Thought Camp"
+"The Thick of It, Series 4, Episode 4" = "The Thick of It, Series 4, Hear 2 Hear"
+"The Thick of It, Series 4, Episode 5" = "The Thick of It, Series 4, The Leak"
+"The Thick of It, Series 4, Episode 6" = "The Thick of It, Series 4, The Inquiry"
+"The Thick of It, Series 4, Episode 7" = "The Thick of It, Series 4, The Final Reckoning"
+"The Thick of It, Special： Spinners and Losers" = "The Thick of It, Specials, Spinners and Losers"
+"I May Destroy You, Series 1, Eyes, Eyes, Eyes, Eyes" = "I May Destroy You, Series 1, Eyes Eyes Eyes Eyes"
 "Doctor Who, Christmas Special： The Church on Ruby Road" = "Doctor Who, Specials, The Church on Ruby Road"
 "Doctor Who, Season 2, The Story and the Engine" = "Doctor Who, Season 2, The Story & the Engine"
 "Doctor Who (2005–2022), Series 12, Spyfall, Part 2" = "Doctor Who (2005–2022), Series 12, Spyfall (2)"
