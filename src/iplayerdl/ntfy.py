@@ -1,4 +1,12 @@
+import logging
+import threading
+
 import requests
+
+logger = logging.getLogger(__name__)
+
+_session: requests.Session | None = None
+_session_lock = threading.Lock()
 
 
 def send_ntfy(
@@ -6,29 +14,44 @@ def send_ntfy(
     title: str = "Pipeline Update",
     priority: str = "default",
     tags: str = "bell",
-    topic: str = "iplayerdl-ntfy-3e58978",
+    topic: str | None = None,
     url_base: str = "https://ntfy.sh/",
 ) -> None:
-    """Send a notification message to an ntfy topic.
+    """Publish a notification message to an ntfy topic.
 
     Args:
-        message (str): Notification message body.
-        title (str): Title to display on the generated plot.
-        priority (str): Optional priority value. Defaults to `'default'`.
-        tags (str): Optional tags value. Defaults to `'bell'`.
-        topic (str): ntfy topic to publish to.
-        url_base (str): Optional url base value. Defaults to `'https://ntfy.sh/'`.
+        message: Notification message body.
+        title: Title shown on the notification.
+        priority: Optional priority value.
+        tags: Optional tags value.
+        topic: ntfy topic to publish to (required).
+        url_base: Base URL of the ntfy server.
 
     Returns:
-        None: This function returns `None`; outputs are written to disk, plotted, logged, or applied through side effects.
+        None
     """
-    url = f"{url_base}{topic}"
-    headers = {
-        "Title": title,
-        "Priority": priority,
-        "Tags": tags,
-    }
+    if not topic:
+        logger.warning("ntfy topic not configured; skipping notification")
+        return
+    session = _get_session()
     try:
-        requests.post(url, data=message.encode("utf-8"), headers=headers)
+        session.post(
+            f"{url_base}{topic}",
+            data=message.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": priority,
+                "Tags": tags,
+            },
+            timeout=30,
+        )
     except requests.exceptions.RequestException as e:
-        print(f"Failed to notify: {e}")
+        logger.error("Failed to notify: %s", e)
+
+
+def _get_session() -> requests.Session:
+    global _session
+    with _session_lock:
+        if _session is None:
+            _session = requests.Session()
+        return _session

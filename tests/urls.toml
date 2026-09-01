@@ -1,0 +1,9 @@
+urls = [
+  "https://www.bbc.co.uk/iplayer/episode/m002rwb3/spiderman",
+  "https://www.bbc.co.uk/iplayer/episodes/b018ttws/sherlock",
+  "https://gem.cbc.ca/i-saw-the-tv-glow",
+  "https://gem.cbc.ca/its-a-sin",
+]
+
+# cap playlist expansion per url (0 = unlimited)
+max_entries_per_url = 10

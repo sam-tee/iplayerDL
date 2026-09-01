@@ -1,15 +1,33 @@
 import json
+import logging
+import os
 import re
 import shutil
 import subprocess
+import tempfile
+import threading
+from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from queue import Queue
 
-from iplayerdl.classes import Pipeline, Task, TranscodeSettings
+from iplayerdl.classes import (
+    DownloadCancelled,
+    Pipeline,
+    Stats,
+    Task,
+    TranscodeSettings,
+)
 from iplayerdl.file_move import move_file
+from iplayerdl.tracker import tracker
+
+logger = logging.getLogger(__name__)
+
+CROP_SAMPLES = 20
+_stats_lock = threading.Lock()
 
 
-def mkPath(path: Path) -> Path:
+def resolve_path(path: Path) -> Path:
     return path.expanduser().resolve()
 
 
@@ -23,50 +41,50 @@ def get_video_duration(file_path: Path) -> float:
         "format=duration",
         "-of",
         "json",
-        str(mkPath(file_path)),
+        str(resolve_path(file_path)),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     data = json.loads(result.stdout)
     return float(data["format"]["duration"])
 
 
-def detect_crop_at_timestamp(file_path: Path, timestamp: float) -> str | None:
-    """Run ffmpeg cropdetect filter for a single frame at a specific time."""
-    cmd: list[str] = [
-        "ffmpeg",
-        "-ss",
-        str(timestamp),
-        "-i",
-        str(mkPath(file_path)),
-        "-frames:v",
-        "20",
-        "-vf",
-        "cropdetect=24:16:0",
-        "-f",
-        "null",
-        "-",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    matches = re.findall(r"crop=([0-9]+:[0-9]+:[0-9]+:[0-9]+)", result.stderr)
-    return matches[-1] if matches else None
-
-
-def get_crop_region(file_path: Path, samples: int = 20) -> str | None:
+def get_crop_region(file_path: Path) -> str | None:
     """
-    Samples the video at multiple points to detect the optimal crop region.
-    Returns the crop string (e.g., '1920:800:0:140') or None if detection fails.
+    Detect the dominant crop region in a single ffmpeg pass.
+
+    Samples ~CROP_SAMPLES frames spread across the video and returns the most
+    common crop string (e.g. '1920:800:0:140'), or None if detection fails.
     """
     try:
         duration = get_video_duration(file_path)
-        timestamps = [(duration / (samples + 1)) * i for i in range(1, samples + 1)]
-        crops: list[str] = []
-        for ts in timestamps:
-            crop = detect_crop_at_timestamp(file_path, ts)
-            if crop:
-                crops.append(crop)
-        return max(set(crops), key=crops.count)
-
-    except Exception:
+        # Sample roughly every duration/CROP_SAMPLES seconds; fps filter is a
+        # cheap way to spread samples across the file in one process.
+        interval = max(duration / CROP_SAMPLES, 1.0)
+        cmd: list[str] = [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            str(resolve_path(file_path)),
+            "-an",
+            "-sn",
+            "-dn",
+            "-vf",
+            f"fps=1/{interval:.3f},cropdetect=24:16:0",
+            "-f",
+            "null",
+            "-",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        matches = re.findall(r"crop=([0-9]+:[0-9]+:[0-9]+:[0-9]+)", result.stderr)
+        if not matches:
+            logger.warning("cropdetect found no crop for %s", file_path)
+            return None
+        return Counter(matches).most_common(1)[0][0]
+    except (subprocess.CalledProcessError, ValueError, KeyError, OSError) as e:
+        logger.warning(
+            "cropdetect failed for %s: %s: %s", file_path, type(e).__name__, e
+        )
         return None
 
 
@@ -105,7 +123,7 @@ def get_crop_params(crop: bool, encoder: str, file: Path) -> list[str]:
         width, height, cx, cy = crop_val.split(":")
         return ["-vf", f"vpp_qsv=cw={width}:ch={height}:cx={cx}:cy={cy}"]
     elif encoder == "vaapi":
-        return ["-vf", f"procamp_vaapi,crop={crop_val}"]
+        return ["-vf", f"crop_vaapi={crop_val}"]
     else:
         return ["-vf", f"crop={crop_val}"]
 
@@ -155,22 +173,26 @@ def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> li
     """
     base_command: list[str] = [
         "ffmpeg",
+        "-y",
         "-hide_banner",
         "-loglevel",
         "error",
         "-stats",
     ]
     pre_input = get_accel_params(settings.encoder, settings.device)
-    file_input = ["-i", str(mkPath(file))]
+    file_input = ["-i", str(resolve_path(file))]
     crop_settings = get_crop_params(settings.crop, settings.encoder, file)
     encoder_settings = get_encoder_params(settings.encoder, settings.quality)
-    video_params = [
-        "-r",
-        "30",
+    output_params = [
+        "-map",
+        "0",
         "-c:a",
         "aac",
-        str(mkPath(output_file)),
-        "-y",
+        "-b:a",
+        "192k",
+        "-c:s",
+        "copy",
+        str(resolve_path(output_file)),
     ]
     cmd = (
         base_command
@@ -178,63 +200,141 @@ def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> li
         + file_input
         + crop_settings
         + encoder_settings
-        + video_params
+        + output_params
     )
     return cmd
 
 
-def transcode(task: Task, settings: TranscodeSettings) -> int:
+def transcode(
+    task: Task,
+    settings: TranscodeSettings,
+    cancelled: Callable[[], bool] | None = None,
+) -> int:
     if not task.input_file.exists():
         return 1
-    transcode_file = mkPath(task.transcode_file)
+    transcode_file = resolve_path(task.transcode_file)
     transcode_file.parent.mkdir(exist_ok=True, parents=True)
     cmd = get_params(settings, task.input_file, transcode_file)
     try:
-        subprocess.run(cmd, capture_output=True, check=True, text=True)
-        print(f"\033[32m[ffmpeg]\033[0m Transcoded: {transcode_file.name}")
-        return 0
-    except subprocess.CalledProcessError as e:
+        with tempfile.TemporaryFile(mode="w+") as errf:
+            proc = subprocess.Popen(cmd, stdout=errf, stderr=errf)
+            while True:
+                try:
+                    returncode = proc.wait(timeout=0.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    if cancelled is not None and cancelled():
+                        logger.info("Transcode cancelled: %s", transcode_file.name)
+                        proc.kill()
+                        proc.wait()
+                        transcode_file.unlink(missing_ok=True)
+                        raise DownloadCancelled(task.url or "") from None
+            if returncode == 0:
+                logger.info("Transcoded: %s", transcode_file.name)
+                return 0
+            transcode_file.unlink(missing_ok=True)
+            errf.seek(0)
+            stderr_tail = (errf.read().strip().splitlines() or [str(returncode)])[-1]
+            logger.error("Error transcoding %s: %s", transcode_file.name, stderr_tail)
+            return 1
+    except OSError as e:
         transcode_file.unlink(missing_ok=True)
-        print(f"\033[32m[ffmpeg]\033[0m \033[31mError: {e}\033[0m")
+        logger.error(
+            "Error transcoding %s: %s: %s", transcode_file.name, type(e).__name__, e
+        )
         return 1
 
 
 def mimic_transcode(task: Task):
     """
-    Runs when transcode is set to false and just copies the input file to transcode folder
+    Runs when transcode is set to false; links (or copies) the input file to
+    the transcode folder instead of re-encoding it.
     """
-    input_file = mkPath(task.input_file)
+    input_file = resolve_path(task.input_file)
     if not input_file.exists():
         return 1
-    transcode_file = mkPath(task.transcode_file)
+    transcode_file = resolve_path(task.transcode_file)
     transcode_file.parent.mkdir(exist_ok=True, parents=True)
-    shutil.copy(input_file, transcode_file)
-    print(
-        f"\033[32m[ffmpeg]\033[0m Transcode is False. Copied {task.input_file} instead"
-    )
+    try:
+        os.link(input_file, transcode_file)
+        logger.info("Transcode is False. Linked %s instead", task.input_file)
+    except OSError as e:
+        logger.debug("Hard link failed for %s (%s: %s), falling back to copy", task.input_file, type(e).__name__, e)
+        try:
+            shutil.copy2(input_file, transcode_file)
+        except OSError as ce:
+            logger.error("Copy failed for %s: %s: %s", task.input_file, type(ce).__name__, ce)
+            return 1
+        logger.info("Transcode is False. Copied %s instead", task.input_file)
     return 0
 
 
 def move(task: Task, pipeline: Pipeline):
-    move_file(task.transcode_file, task.output_file)
-    print(f"\033[36m[sorter]\033[0m Moved: {task.transcode_file} -> {task.output_file}")
+    try:
+        move_file(task.transcode_file, task.output_file)
+    except Exception:
+        logger.exception("Move failed: %s -> %s", task.transcode_file, task.output_file)
+        raise
+    logger.info("Moved: %s -> %s", task.transcode_file, task.output_file)
     if pipeline.delete_downloads:
         task.input_file.unlink(missing_ok=True)
-        print(f"\033[36m[sorter]\033[0m Deleted Download: {task.input_file}")
+        logger.info("Deleted Download: %s", task.input_file)
 
 
-def transcode_worker(q: Queue, settings: TranscodeSettings, pipeline: Pipeline):
+def transcode_worker(
+    q: Queue, settings: TranscodeSettings, pipeline: Pipeline, stats: Stats
+):
     while True:
         task: Task = q.get()
         if task is None:
+            q.task_done()
             break
+        if task.url and tracker.cancelled(task.url):
+            logger.info("Skipping cancelled task: %s", task.input_file.name)
+            if task.download_slot is not None:
+                task.download_slot.release()
+            q.task_done()
+            continue
+        if task.url:
+            tracker.transcoding(task.url)
         try:
-            if pipeline.transcode:
-                transcode_status = transcode(task, settings)
-            else:
-                transcode_status = mimic_transcode(task)
-            if transcode_status == 0:
-                move(task, pipeline)
+            try:
+                if pipeline.transcode:
+                    transcode_status = transcode(
+                        task,
+                        settings,
+                        lambda url=task.url: url is not None and tracker.cancelled(url),
+                    )
+                else:
+                    transcode_status = mimic_transcode(task)
+                if transcode_status == 0:
+                    try:
+                        move(task, pipeline)
+                    except Exception:
+                        # move failed — clean up transcode_file to avoid disk leak
+                        try:
+                            Path(task.transcode_file).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        raise
+                    with stats._lock:
+                        stats.completed += 1
+                    tracker.completed_task(task.url, ok=True)
+                else:
+                    with stats._lock:
+                        stats.failed += 1
+                    if not task.input_file.exists():
+                        logger.warning("Skipped missing input: %s", task.input_file)
+                    else:
+                        logger.warning("Transcode failed for: %s", task.input_file)
+                    tracker.completed_task(task.url, ok=False)
+            except DownloadCancelled:
+                pass  # status already set by Tracker.cancel()
+            except Exception:  # worker must survive any task failure
+                with stats._lock:
+                    stats.failed += 1
+                logger.exception("Task failed for %s", task.input_file)
+                tracker.completed_task(task.url, ok=False)
         finally:
             if task.download_slot is not None:
                 task.download_slot.release()

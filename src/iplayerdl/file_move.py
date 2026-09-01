@@ -11,6 +11,10 @@ class RemotePath:
     path: Path
 
     def get_scp_host(self) -> str:
+        # Modern scp (OpenSSH >= 9.0) uses the SFTP protocol and takes the
+        # remote path literally - it must NOT be shell-quoted here. Shell
+        # quoting is only correct for commands that run through a remote
+        # shell (see move_file's mkdir).
         return f"{self.host}:{self.path}"
 
 
@@ -27,7 +31,9 @@ def parse_remote_path(path: Path) -> RemotePath | None:
         return None
     if "/" in host or "\\" in host:
         return None
-    return RemotePath(host, Path(remote_path).expanduser().resolve())
+    # Do not resolve(): the remote path must not be interpreted against the
+    # local filesystem (a relative remote path would gain the local cwd).
+    return RemotePath(host, Path(remote_path).expanduser())
 
 
 def move_file(src: Path, dst: Path):

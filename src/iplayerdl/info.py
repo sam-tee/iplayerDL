@@ -1,27 +1,28 @@
-import dotenv
+import re
+
 from tmdbv3api import TV, Movie, Season, TMDb
 from tmdbv3api.exceptions import TMDbException
 
 tmdb = TMDb()
 
+# Keep in sync with resolver.part_number — both normalise "Part One/Two/Three" → "(n)"
+_PART_NUMBERS = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
 
-def sanitise(input: str) -> str:
-    input = input.replace("’", "'")
-    input = input.replace("？", "?")
-    input = input.replace("：", ":")
-    input = input.replace(", Part One", "(1)")
-    input = input.replace(", Part Two", "(2)")
-    input = input.replace("- Part One", "(1)")
-    input = input.replace("- Part Two", "(2)")
-    input = input.replace(", Part 1", "(1)")
-    input = input.replace(", Part 2", "(2)")
-    input = input.replace("- Part 1", "(1)")
-    input = input.replace("- Part 2", "(2)")
-    input = input.replace(": Part One", "(1)")
-    input = input.replace(": Part Two", "(2)")
-    input = input.replace(": Part 1", "(1)")
-    input = input.replace(": Part 2", "(2)")
-    return input
+
+def sanitise(text: str) -> str:
+    text = text.replace("’", "'")
+    text = text.replace("？", "?")
+    text = text.replace("：", ":")
+    return re.sub(
+        r"[,:\-]?\s*Part\s+(One|Two|Three|1|2|3)\b",
+        lambda m: f"({_PART_NUMBERS[m.group(1).lower()]})",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _year(date_str: str | None) -> str:
+    return (date_str or "").split("-")[0]
 
 
 def title2show_data(title: str, overrides: dict) -> dict[str, str]:
@@ -71,19 +72,22 @@ def find_series(show_data: dict) -> str | None:
                 str(ep.name).lower(),
                 show_data["episode_name"].lower(),
             )
-            if "episode" in ep_name:
-                if ep_name != ep_name_comp:
-                    continue
+            if "episode" in ep_name and ep_name != ep_name_comp:
+                continue
             if (ep_name in ep_name_comp) or (ep_name_comp in ep_name):
-                name_year = f"{show.name} ({show.first_air_date.split('-')[0]})"
+                year = _year(show.first_air_date)
+                name_year = f"{show.name} ({year})" if year else show.name
                 s_num = ep.season_number
-                season = f"Season {s_num:02d}" if s_num != 0 else "Specials"
-                return f"tv/{name_year}/{season}/{name_year} - S{s_num:02d}E{ep.episode_number:02d} - {ep.name}"
+                season_dir = f"Season {s_num:02d}" if s_num != 0 else "Specials"
+                return (
+                    f"tv/{name_year}/{season_dir}/"
+                    f"{name_year} - S{s_num:02d}E{ep.episode_number:02d} - {ep.name}"
+                )
 
 
 def find_movie(title: str) -> str | None:
     """
-    Takes in title of film and return Jellyfin style partial mapping with film and year
+    Takes in title of film and returns Jellyfin style partial mapping with film and year
     If multiple films have same title and first result is not 5x more popular then returns
         without year
     """
@@ -92,17 +96,19 @@ def find_movie(title: str) -> str | None:
 
     if search_results.total_results == 0:
         return None
-    elif search_results.total_results == 1:
+    if search_results.total_results == 1:
         title = search_results[0].title
-    elif search_results[0] == search_results[1].title:
-        # if top two have same title then multiple of same film exist
-        # checks if second one is five times less popular and if so returns
-        # the first else returns just title and choice can be made later
+    elif search_results[0].title == search_results[1].title:
+        # if top two have same title then multiple of the same film exist;
+        # only trust the first result's identity if it is far more popular,
+        # otherwise return without a year so the choice can be made later
         m1 = movie.details(search_results[0].id)
         m2 = movie.details(search_results[1].id)
         if m1.popularity < m2.popularity * 5:
             return f"film/{title}/{title}"
-    year = search_results[0].release_date.split("-")[0]
+    year = _year(search_results[0].release_date)
+    if not year:
+        return f"film/{search_results[0].title}/{search_results[0].title}"
     movie_name = f"{title} ({year})"
     return f"film/{movie_name}/{movie_name}"
 
@@ -116,7 +122,9 @@ def get_media_name(title: str, overrides: dict) -> str | None:
 
 
 if __name__ == "__main__":
-    dotenv.load_dotenv()
+    from iplayerdl.config_loader import apply_environment, load_config
+
+    apply_environment(load_config())
     titles = [
         "Doctor Who (2005–2022), Series 2, Love and Monsters",
         "Doctor Who (2005–2022), The End of Time - Part Two",
