@@ -71,8 +71,9 @@ DEFAULT_CONFIG = """# iplayerDL settings
 #                                 # Sonarr/Radarr (rolled back if no episode matches);
 #                                 # otherwise only match your existing libraries (+ TMDb fallback)
 
-# yt-dlp download options, passed straight through to yt-dlp. Absent keys
-# fall back to yt-dlp's own defaults.
+# yt-dlp download options, passed straight through to yt-dlp. The
+# opinionated set below applies when unset; override individual keys
+# as needed.
 # [download_settings]
 # format = "bv*+ba[language=en]/bv*+ba/best"
 # subtitleslangs = ["en.*"]

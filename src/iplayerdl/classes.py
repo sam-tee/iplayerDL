@@ -81,6 +81,18 @@ class LoggingConfig:
     level: str = "auto"
 
 
+# Opinionated yt-dlp defaults, applied when [download_settings] is absent.
+DEFAULT_DOWNLOAD_SETTINGS: dict = {
+    "format": "bv*+ba[language=en]/bv*+ba/best",
+    "subtitleslangs": ["en.*"],
+    "writesubtitles": True,
+    "quiet": True,
+    "noprogress": False,
+    "check_formats": True,
+    "ignoreerrors": "only_download",
+}
+
+
 @dataclass
 class Config:
     folders: Folders = field(default_factory=Folders)
@@ -88,7 +100,9 @@ class Config:
     transcode_settings: TranscodeSettings = field(default_factory=TranscodeSettings)
     ntfy: NtfyConfig = field(default_factory=NtfyConfig)
     web: WebConfig = field(default_factory=WebConfig)
-    download_settings: dict = field(default_factory=dict)
+    download_settings: dict = field(
+        default_factory=lambda: dict(DEFAULT_DOWNLOAD_SETTINGS)
+    )
     title_overrides: dict = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
