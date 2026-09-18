@@ -91,8 +91,9 @@ DEFAULT_CONFIG = """# iplayerDL settings
 # [title_overrides]
 
 # Console log level: an explicit value wins everywhere. "auto" (the
-# default) means INFO on an interactive terminal and WARNING otherwise
-# (systemd journal, pipes, cron), keeping unattended logs quiet.
+# default) means WARNING on an interactive terminal and INFO otherwise
+# (systemd journal, pipes, cron), keeping live output quiet while
+# unattended logs keep full detail.
 # One of auto, DEBUG, INFO, WARNING, ERROR, CRITICAL.
 # [logging]
 # level = "auto"

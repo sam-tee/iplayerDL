@@ -1,8 +1,8 @@
 """Central logging setup: console level comes from config, default auto.
 
-`auto` (the default) means INFO on an interactive terminal and WARNING
-everywhere else (systemd services, pipes, cron), so the journal stays
-quiet unless the config pins a level explicitly.
+`auto` (the default) means WARNING on an interactive terminal and INFO
+everywhere else (systemd services, pipes, cron), so live console output
+stays quiet while unattended logs (e.g. the journal) keep full detail.
 """
 
 import logging
@@ -39,8 +39,8 @@ def interactive_console() -> bool:
 
 
 def auto_level() -> int:
-    """Context default: INFO for interactive use, WARNING otherwise."""
-    return logging.INFO if interactive_console() else logging.WARNING
+    """Context default: WARNING for interactive use, INFO otherwise."""
+    return logging.WARNING if interactive_console() else logging.INFO
 
 
 def normalize_level(level: str | int | None) -> int:
