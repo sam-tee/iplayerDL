@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import shutil
@@ -9,6 +10,8 @@ from dacite import Config as DaciteConfig
 from dacite import from_dict
 
 from iplayerdl.classes import DEFAULT_DOWNLOAD_SETTINGS, Config
+
+logger = logging.getLogger(__name__)
 
 CONFIG_ENV_VAR = "IPLAYERDL_CONFIG"
 APP_DIR_NAME = "iplayerdl"
@@ -187,24 +190,38 @@ def _merge_environment_section(text: str, env_vars: dict[str, str]) -> str:
 def ensure_config(path: Path) -> Path:
     legacy = Path(__file__).resolve().parent.parent.parent / CONFIG_FILE_NAME
     env_file = legacy.parent / ".env"
+    migrated_env_file = legacy.parent / ".env.migrated"
+    created = False
     if not path.exists():
+        created = True
         path.parent.mkdir(parents=True, exist_ok=True)
         if legacy.exists():
             shutil.copyfile(legacy, path)
         else:
             path.write_text(DEFAULT_CONFIG)
-    # Migrate any legacy .env values into the [environment] section.
-    # This also covers custom $IPLAYERDL_CONFIG paths that were already created.
-    if env_file.exists():
+    # One-time migration of a legacy .env into [environment], only for
+    # freshly created configs. Afterwards the .env is archived so later
+    # runs never touch the config again (hand edits always win).
+    if created and env_file.exists():
         try:
-            text = path.read_text()
             env_vars = _parse_env_file(env_file)
             if env_vars:
+                text = path.read_text()
                 merged = _merge_environment_section(text, env_vars)
                 if merged != text:
                     path.write_text(merged)
-        except OSError:
-            pass
+                logger.info(
+                    "Migrated %d keys from %s into [environment]",
+                    len(env_vars),
+                    env_file,
+                )
+            env_file.replace(migrated_env_file)
+        except OSError as e:
+            logger.warning(
+                "Legacy .env migration failed: %s: %s",
+                type(e).__name__,
+                e,
+            )
     return path
 
 
