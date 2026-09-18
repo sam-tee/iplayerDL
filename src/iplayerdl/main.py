@@ -1,13 +1,13 @@
 import argparse
 import logging
 import queue
-import sys
 import threading
 from pathlib import Path
 
 from iplayerdl.classes import Config, DownloadCancelled, Stats
 from iplayerdl.config_loader import apply_environment, load_config
 from iplayerdl.download import download_url
+from iplayerdl.logging_setup import get_log_level, setup_logging
 from iplayerdl.ntfy import send_ntfy
 from iplayerdl.tracker import tracker
 from iplayerdl.transcode import transcode_worker
@@ -95,15 +95,6 @@ def run_pipeline(config: Config) -> None:
         )
 
 
-def setup_logging(verbose: bool = False) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-7s [%(threadName)s] %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
-
-
 def cli() -> None:
     parser = argparse.ArgumentParser(
         prog="iplayerdl",
@@ -113,7 +104,13 @@ def cli() -> None:
         "-v",
         "--verbose",
         action="store_true",
-        help="enable debug logging",
+        help="enable debug logging (overrides config logging.level)",
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=None,
+        help="console log level (overrides config logging.level)",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -133,10 +130,17 @@ def cli() -> None:
 
     args = parser.parse_args()
     command = args.command or "run"
-    setup_logging(args.verbose)
+    # Early setup so config-load errors are visible; re-applied from config below.
+    setup_logging("DEBUG" if args.verbose else (args.log_level or "WARNING"))
 
     config = load_config(Path(args.config) if args.config else None)
     apply_environment(config)
+    if args.verbose:
+        setup_logging("DEBUG")
+    elif args.log_level:
+        setup_logging(args.log_level)
+    else:
+        setup_logging(get_log_level(config))
 
     if command == "web":
         from iplayerdl.web import serve

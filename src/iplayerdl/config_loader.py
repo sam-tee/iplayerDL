@@ -56,6 +56,9 @@ crop = true
 [ntfy]
 url_base = "https://ntfy.example.com/"
 topic = "iplayerDL"
+
+[logging]
+level = "WARNING" # one of DEBUG, INFO, WARNING, ERROR, CRITICAL
 """
 
 

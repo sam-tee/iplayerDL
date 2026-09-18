@@ -169,15 +169,20 @@ def get_encoder_params(encoder: str, quality: int) -> list[str]:
 
 def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> list[str]:
     """
-    Collects all parameters from given settings
+    Collects all parameters from given settings.
+
+    Uses `-progress pipe:1 -nostats` so the web UI can parse machine-readable
+    transcode progress from stdout while stderr stays clean for real errors.
     """
     base_command: list[str] = [
         "ffmpeg",
         "-y",
         "-hide_banner",
+        "-nostats",
         "-loglevel",
         "error",
-        "-stats",
+        "-progress",
+        "pipe:1",
     ]
     pre_input = get_accel_params(settings.encoder, settings.device)
     file_input = ["-i", str(resolve_path(file))]
@@ -205,6 +210,57 @@ def get_params(settings: TranscodeSettings, file: Path, output_file: Path) -> li
     return cmd
 
 
+def _ffmpeg_time_to_seconds(value: str) -> float | None:
+    """Parse ffmpeg `out_time` (HH:MM:SS.micro) to seconds."""
+    try:
+        hours, minutes, seconds = value.strip().split(":")
+        return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _report_transcode_progress(task: Task, out_time_s: float, duration: float) -> None:
+    if not task.url or not duration or duration <= 0:
+        return
+    percent = round(max(0.0, min(1.0, out_time_s / duration)) * 100, 1)
+    tracker.transcoding(task.url, percent)
+
+
+def _drain_ffmpeg_progress(
+    proc: subprocess.Popen, task: Task, duration: float | None
+) -> None:
+    """Read `-progress pipe:1` lines from stdout and update the tracker."""
+    try:
+        stream = proc.stdout
+        if stream is None:
+            return
+        for raw_line in stream:
+            line = raw_line.strip() if isinstance(raw_line, str) else raw_line.decode(errors="ignore").strip()
+            seconds: float | None = None
+            if line.startswith("out_time_ms="):
+                try:
+                    # ffmpeg documents this as microseconds despite the name.
+                    seconds = int(line.split("=", 1)[1].strip()) / 1_000_000
+                except ValueError:
+                    continue
+            elif line.startswith("out_time="):
+                seconds = _ffmpeg_time_to_seconds(line.split("=", 1)[1])
+            else:
+                continue
+            if seconds is not None and seconds >= 0 and duration:
+                _report_transcode_progress(task, seconds, duration)
+            if line == "progress=end" and task.url:
+                tracker.transcoding(task.url, 100.0)
+    except Exception:
+        logger.debug("ffmpeg progress reader exited", exc_info=True)
+    finally:
+        try:
+            if proc.stdout is not None:
+                proc.stdout.close()
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+
 def transcode(
     task: Task,
     settings: TranscodeSettings,
@@ -216,20 +272,41 @@ def transcode(
     transcode_file.parent.mkdir(exist_ok=True, parents=True)
     cmd = get_params(settings, task.input_file, transcode_file)
     try:
+        try:
+            duration: float | None = get_video_duration(task.input_file)
+        except Exception as e:  # noqa: BLE001 - fall back to indeterminate progress
+            logger.debug("Could not probe duration for %s: %s: %s", task.input_file, type(e).__name__, e)
+            duration = None
         with tempfile.TemporaryFile(mode="w+") as errf:
-            proc = subprocess.Popen(cmd, stdout=errf, stderr=errf)
-            while True:
-                try:
-                    returncode = proc.wait(timeout=0.5)
-                    break
-                except subprocess.TimeoutExpired:
-                    if cancelled is not None and cancelled():
-                        logger.info("Transcode cancelled: %s", transcode_file.name)
-                        proc.kill()
-                        proc.wait()
-                        transcode_file.unlink(missing_ok=True)
-                        raise DownloadCancelled(task.url or "") from None
+            # stdout carries `-progress pipe:1` for the web UI; stderr stays
+            # a temp file so large error output can never block ffmpeg.
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=errf, text=True, bufsize=1
+            )
+            reader = threading.Thread(
+                target=_drain_ffmpeg_progress,
+                args=(proc, task, duration),
+                daemon=True,
+                name=f"ffmpeg-progress-{transcode_file.name}",
+            )
+            reader.start()
+            try:
+                while True:
+                    try:
+                        returncode = proc.wait(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if cancelled is not None and cancelled():
+                            logger.info("Transcode cancelled: %s", transcode_file.name)
+                            proc.kill()
+                            proc.wait()
+                            transcode_file.unlink(missing_ok=True)
+                            raise DownloadCancelled(task.url or "") from None
+            finally:
+                reader.join(timeout=5)
             if returncode == 0:
+                if task.url:
+                    tracker.transcoding(task.url, 100.0)
                 logger.info("Transcoded: %s", transcode_file.name)
                 return 0
             transcode_file.unlink(missing_ok=True)

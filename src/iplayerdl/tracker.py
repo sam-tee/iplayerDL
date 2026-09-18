@@ -104,13 +104,32 @@ class Tracker:
             detail=f"No match found for {title}" if title else "",
         )
 
-    def transcoding(self, url: str) -> None:
+    def transcoding(
+        self, url: str, percent: float | None = None, detail: str = ""
+    ) -> None:
         with self._lock:
             job = self._jobs.get(url)
             if job is None or url in self._cancelled:
                 return
-            if job["status"] in ("downloading", "pending", "resolving"):
-                job["status"] = "transcoding"
+            if job["status"] != "transcoding" and job["status"] not in (
+                "downloading",
+                "pending",
+                "resolving",
+            ):
+                return
+            job["status"] = "transcoding"
+            if percent is not None:
+                try:
+                    pct = round(float(percent), 1)
+                except (TypeError, ValueError):
+                    pct = None
+                if pct is not None:
+                    pct = max(0.0, min(100.0, pct))
+                    job["percent"] = pct
+                    job["detail"] = detail or f"{pct:.1f}%"
+                    return
+            if detail:
+                job["detail"] = detail
 
     def completed_task(self, url: str, ok: bool) -> None:
         with self._lock:

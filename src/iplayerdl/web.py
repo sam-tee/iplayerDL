@@ -57,6 +57,7 @@ class PipelineRunner:
 
     def _run(self) -> None:
         from iplayerdl.config_loader import apply_environment, load_config
+        from iplayerdl.logging_setup import get_log_level, setup_logging
 
         root = logging.getLogger()
         log_handler = _RunnerLogHandler(self)
@@ -64,6 +65,7 @@ class PipelineRunner:
         try:
             config = load_config()
             apply_environment(config)
+            setup_logging(get_log_level(config))
             with redirect_stdout(self), redirect_stderr(self):
                 run_pipeline(config)
             self._write("Pipeline finished successfully\n")
@@ -576,7 +578,7 @@ function renderJobs(jobs) {
     const cancellable = active || job.status === 'pending';
     let barClass = 'bar';
     let style = '';
-    if (job.status === 'downloading' && job.percent != null) {
+    if (job.percent != null && (job.status === 'downloading' || job.status === 'transcoding')) {
       style = `width:${Math.max(2, job.percent)}%`;
     } else if (active) {
       barClass += ' indeterminate';

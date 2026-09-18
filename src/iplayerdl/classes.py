@@ -71,6 +71,11 @@ class NtfyConfig:
 
 
 @dataclass
+class LoggingConfig:
+    level: str = "WARNING"
+
+
+@dataclass
 class Config:
     folders: Folders
     urls: list[str]
@@ -80,3 +85,4 @@ class Config:
     download_settings: dict = field(default_factory=dict)
     title_overrides: dict = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
