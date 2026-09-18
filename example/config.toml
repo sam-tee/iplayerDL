@@ -14,7 +14,7 @@
 
 [folders]
 download_dir = "./download"
-media_dir = "/mnt/data/media"
+media_dir = ""
 transcode_dir = "./transcode"
 
 [pipeline]
@@ -23,14 +23,15 @@ delete_downloads = true
 max_non_transcoded = 5
 allow_speculative_adds = false
 
-[download_settings]
-format = "bv*+ba[language=en]/bv*+ba/best"
-subtitleslangs = ["en.*"]
-writesubtitles = true
-quiet = true
-noprogress = false
-check_formats = true
-ignoreerrors = "only_download"
+# Unset by default (yt-dlp's own defaults apply). Recommended set below.
+# [download_settings]
+# format = "bv*+ba[language=en]/bv*+ba/best"
+# subtitleslangs = ["en.*"]
+# writesubtitles = true
+# quiet = true
+# noprogress = false
+# check_formats = true
+# ignoreerrors = "only_download"
 
 [transcode_settings]
 encoder = "none" # one of "none", "qsv", "vaapi", "apple"
