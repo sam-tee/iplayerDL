@@ -22,25 +22,26 @@ no matching episode is found).
    override the location.
 2. Fill in `[environment]` in `config.toml` (e.g. `TMDB_API_KEY`, `RADARR_API_KEY`) — this
    replaces the old `.env` file.
-3. Adjust the rest of `config.toml` with desired urls and values, either by hand or via the
-   web interface.
+3. Adjust the rest of `config.toml` by hand or via the web interface.
+   (The URL queue is ephemeral: pass URLs as `run` arguments or paste
+   them into the web UI — they are never stored.)
 4. Run:
 
 ```python
 uv sync
-uv run -m iplayerdl.main run     # process every URL in config.toml (default)
-uv run -m iplayerdl.main web     # web interface for editing settings and queueing URLs
+uv run -m iplayerdl.main run <url> ...  # download and process the given URLs
+uv run -m iplayerdl.main web             # web interface (bind via [web] or --host/--port)
 ```
 
 ## Web interface
 
 ```bash
-uv run -m iplayerdl.main web --host 127.0.0.1 --port 8080
+uv run -m iplayerdl.main web
 ```
 
 - Edit the whole `config.toml` behind the gear icon (validated as TOML before saving)
-- Paste one or more URLs on the front page — saving **replaces** the `urls` list in
-  config.toml, optionally starting a download immediately
+- Paste one or more URLs on the front page — they are queued in memory
+  only (gone on restart), optionally starting a download immediately
 - Watch per-URL progress bars showing resolving/downloading (with % and MB)/transcoding/
   done/failed states, plus live pipeline output
 

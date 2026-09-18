@@ -22,18 +22,26 @@ DEFAULT_CONFIG = """# iplayerDL settings
 # recent [section] header, so uncommenting an option without its header
 # puts it in the wrong place and iplayerDL will tell you.)
 #
-# The urls list is special: it lives at the top level, above all [sections].
-#
 # This file is created automatically at first run and lives at
 # $XDG_CONFIG_HOME/iplayerdl/config.toml (normally
 # ~/.config/iplayerdl/config.toml). Set the IPLAYERDL_CONFIG environment
 # variable to use a different location. Values from a legacy .env file next
 # to the old repo config.toml are migrated into [environment] on startup.
 #
-# The web interface (iplayerdl web) can edit this file for you.
+# The download queue is ephemeral (held in memory, never stored here):
+# pass URLs as `iplayerdl run <url> ...` arguments, or paste them into
+# the web interface (iplayerdl web).
 
-# URLs to process. Saving URLs in the web interface replaces this list.
-# urls = []
+# ntfy notifications on pipeline success/failure. Leave topic empty to skip.
+# [ntfy]
+# url_base = "https://ntfy.example.com/"
+# topic = "iplayerDL"
+
+# Web interface bind address and port (iplayerdl web). Command-line
+# --host/--port flags override these when given.
+# [web]
+# host = "127.0.0.1"
+# port = 8080
 
 # Secrets and service credentials. Exported into the process environment
 # before the pipeline runs, so nothing secret ever lives anywhere else.
@@ -225,6 +233,7 @@ ROOT_TABLES = frozenset(
         "title_overrides",
         "ntfy",
         "logging",
+        "web",
     }
 )
 

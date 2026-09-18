@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import threading
 import tomllib
 import traceback
@@ -11,9 +10,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from iplayerdl.config_loader import ensure_config, get_config_path
 from iplayerdl.main import run_pipeline
 from iplayerdl.tracker import tracker as job_tracker
-
-# Kept for backwards-compat tests; _replace_urls no longer relies on this regex.
-URLS_ARRAY_RE = re.compile(r"(?m)^(\s*urls\s*=\s*\[)([^\]]*)(\])", re.DOTALL)
 
 logger = logging.getLogger(__name__)
 
@@ -34,28 +30,61 @@ class _RunnerLogHandler(logging.Handler):
 
 
 class PipelineRunner:
-    """Runs the pipeline in a background thread, at most one at a time."""
+    """Runs the pipeline in a background thread, at most one at a time.
+
+    The URL queue is ephemeral: submitted via the UI/API, held in memory
+    only, and consumed when a run starts. Nothing is written to disk.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._log_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._log: deque[str] = deque(maxlen=500)
+        self._pending: list[str] = []
 
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def submit(self, urls: list[str], run: bool = False) -> bool:
+        """Replace the in-memory queue; optionally start a run.
+
+        Returns True if a run was started.
+        """
+        with self._lock:
+            seen: set[str] = set()
+            self._pending = []
+            for url in urls:
+                url = url.strip()
+                if url and url not in seen:
+                    seen.add(url)
+                    self._pending.append(url)
+            if run:
+                return self._start_locked()
+            return False
+
+    def pending(self) -> list[str]:
+        with self._lock:
+            return list(self._pending)
+
     def start(self) -> bool:
         with self._lock:
-            if self.running:
-                return False
-            self._log.clear()
-            self._thread = threading.Thread(target=self._run, daemon=True)
-            self._thread.start()
-            return True
+            return self._start_locked()
 
-    def _run(self) -> None:
+    def _start_locked(self) -> bool:
+        if self.running:
+            return False
+        self._log.clear()
+        urls = [u for u in self._pending if not job_tracker.cancelled(u)]
+        self._pending = []
+        self._thread = threading.Thread(
+            target=self._run, args=(urls,), daemon=True
+        )
+        self._thread.start()
+        return True
+
+    def _run(self, urls: list[str]) -> None:
         from iplayerdl.config_loader import apply_environment, load_config
         from iplayerdl.logging_setup import get_log_level, setup_logging
 
@@ -67,7 +96,7 @@ class PipelineRunner:
             apply_environment(config)
             setup_logging(get_log_level(config))
             with redirect_stdout(self), redirect_stderr(self):
-                run_pipeline(config)
+                run_pipeline(config, urls)
             self._write("Pipeline finished successfully\n")
         except Exception as e:
             self._write(f"Pipeline failed: {type(e).__name__}: {e}\n")
@@ -91,7 +120,7 @@ class PipelineRunner:
     def status(self) -> dict:
         known = {job["url"]: dict(job) for job in job_tracker.snapshot()}
         jobs = []
-        for url in _current_urls():
+        for url in self.pending():
             job = known.pop(
                 url,
                 {
@@ -127,103 +156,6 @@ def _validate_toml(text: str) -> None:
         tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise ValueError(f"Invalid TOML: {e}") from e
-
-
-def _replace_urls(text: str, urls: list[str]) -> str:
-    # TOML-aware scan: find `urls = [` then consume until matching `]`
-    # respecting quoted strings (including triple-quoted) and line comments
-    # so a `]` inside a URL or comment doesn't terminate early.
-    header = re.search(r"(?m)^\s*urls\s*=\s*\[", text)
-    if header is None:
-        # No live array (e.g. the default template ships fully commented out).
-        # Prepend one at the top of the file: root-level keys must come before
-        # any [table], so position 0 is always valid TOML.
-        return _build_urls_block(urls) + text
-    start = header.start()
-    i = header.end()  # after '['
-    depth = 1
-    in_single = False
-    in_double = False
-    in_triple_single = False
-    in_triple_double = False
-    escaped = False
-    while i < len(text) and depth > 0:
-        # Handle triple-quoted string boundaries first
-        if not escaped:
-            if in_triple_single:
-                if text[i : i + 3] == "'''":
-                    in_triple_single = False
-                    i += 3
-                    continue
-            elif in_triple_double:
-                if text[i : i + 3] == '"""':
-                    in_triple_double = False
-                    i += 3
-                    continue
-            elif not in_single and not in_double:
-                if text[i : i + 3] == "'''":
-                    in_triple_single = True
-                    i += 3
-                    continue
-                if text[i : i + 3] == '"""':
-                    in_triple_double = True
-                    i += 3
-                    continue
-        if in_triple_single or in_triple_double:
-            i += 1
-            continue
-        ch = text[i]
-        if escaped:
-            escaped = False
-        elif ch == "\\" and (in_single or in_double):
-            escaped = True
-        elif ch == "'" and not in_double:
-            in_single = not in_single
-        elif ch == '"' and not in_single:
-            in_double = not in_double
-        elif not in_single and not in_double:
-            if ch == "#":
-                # Skip TOML line comment until newline
-                while i < len(text) and text[i] != "\n":
-                    i += 1
-                continue
-            if ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth -= 1
-        i += 1
-    if depth != 0:
-        raise ValueError("Unterminated 'urls = [...]' array in config.toml")
-    # header.group() contains leading whitespace + 'urls = ['; keep it verbatim
-    prefix = text[start : header.end()]
-    suffix = "]"
-    replacement = f"{prefix}{_urls_body(urls)}{suffix}"
-    return text[:start] + replacement + text[i:]
-
-
-def _urls_body(urls: list[str]) -> str:
-    seen: set[str] = set()
-    entries = []
-    for url in urls:
-        url = url.strip()
-        if not url or url in seen:
-            continue
-        escaped_url = url.replace("\\", "\\\\").replace('"', '\\"')
-        entries.append(f'"{escaped_url}",')
-        seen.add(url)
-    return ("\n" + "\n".join(entries) + "\n") if entries else ""
-
-
-def _build_urls_block(urls: list[str]) -> str:
-    return f"urls = [{_urls_body(urls)}]\n\n"
-
-
-def _current_urls() -> list[str]:
-    try:
-        data = tomllib.loads(_read_config_text())
-        return [u for u in data.get("urls", []) if isinstance(u, str)]
-    except Exception:  # noqa: BLE001
-        return []
 
 
 def _save_config(text: str) -> None:
@@ -272,7 +204,7 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "path": str(get_config_path()),
                         "content": _read_config_text(),
-                        "urls": _current_urls(),
+                        "urls": runner.pending(),
                     }
                 )
             elif self.path == "/api/status":
@@ -299,9 +231,7 @@ class Handler(BaseHTTPRequestHandler):
                     isinstance(u, str) for u in urls
                 ):
                     raise ValueError("'urls' must be a list of strings")
-                text = _replace_urls(_read_config_text(), urls)
-                _save_config(text)
-                started = runner.start() if data.get("run") else False
+                started = runner.submit(urls, run=bool(data.get("run")))
                 self._send_json(
                     {"ok": True, "started": started, "running": runner.running}
                 )
@@ -474,11 +404,11 @@ PAGE_HTML = """<!DOCTYPE html>
 
 <section>
   <h2>Queue URLs</h2>
-  <p class="hint">One URL per line — saving replaces the list in config.toml.</p>
+  <p class="hint">One URL per line — queued in memory only, gone on restart.</p>
   <textarea id="url-input" placeholder="https://www.bbc.co.uk/iplayer/episode/..." spellcheck="false"></textarea>
   <div class="row" style="margin-top:0.6rem">
-    <button id="download-btn" class="action">Save &amp; Download</button>
-    <button id="save-urls-btn" class="secondary">Save only</button>
+    <button id="download-btn" class="action">Queue &amp; Download</button>
+    <button id="save-urls-btn" class="secondary">Queue only</button>
     <span id="msg"></span>
   </div>
 </section>
@@ -540,8 +470,8 @@ async function saveUrls(run) {
   try {
     const data = await api('/api/urls', {urls, run});
     if (data.started) showMsg('Download started', true);
-    else if (run && data.running) showMsg('Pipeline already running — URLs saved', true);
-    else showMsg('URLs saved', true);
+    else if (run && data.running) showMsg('Pipeline already running — URLs queued', true);
+    else showMsg('URLs queued', true);
     startPolling();
   } catch (e) { showMsg(e.message, false); }
   $('download-btn').disabled = $('save-urls-btn').disabled = false;

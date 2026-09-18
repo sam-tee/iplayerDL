@@ -71,6 +71,12 @@ class NtfyConfig:
 
 
 @dataclass
+class WebConfig:
+    host: str = "127.0.0.1"
+    port: int = 8080
+
+
+@dataclass
 class LoggingConfig:
     level: str = "auto"
 
@@ -78,10 +84,10 @@ class LoggingConfig:
 @dataclass
 class Config:
     folders: Folders = field(default_factory=Folders)
-    urls: list[str] = field(default_factory=list)
     pipeline: Pipeline = field(default_factory=Pipeline)
     transcode_settings: TranscodeSettings = field(default_factory=TranscodeSettings)
     ntfy: NtfyConfig = field(default_factory=NtfyConfig)
+    web: WebConfig = field(default_factory=WebConfig)
     download_settings: dict = field(default_factory=dict)
     title_overrides: dict = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)

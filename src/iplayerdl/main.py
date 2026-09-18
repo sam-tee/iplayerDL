@@ -15,8 +15,8 @@ from iplayerdl.transcode import transcode_worker
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(config: Config) -> None:
-    tracker.reset(config.urls)
+def run_pipeline(config: Config, urls: list[str]) -> None:
+    tracker.reset(urls)
     if (
         config.pipeline.max_non_transcoded is not None
         and config.pipeline.max_non_transcoded < 1
@@ -36,7 +36,7 @@ def run_pipeline(config: Config) -> None:
     )
     t.start()
     try:
-        for url in config.urls:
+        for url in urls:
             if tracker.cancelled(url):
                 continue
             try:
@@ -115,25 +115,36 @@ def cli() -> None:
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser(
-        "run", help="process every URL in config.toml (default)"
+        "run", help="download and process the given URLs (default)"
     )
     run_parser.add_argument("--config", type=str, help="path to config.toml")
+    run_parser.add_argument(
+        "urls",
+        nargs="*",
+        help="episode/series URLs to process (queue is ephemeral, never stored)",
+    )
 
     web_parser = subparsers.add_parser(
         "web", help="start the web interface for editing settings and queueing URLs"
     )
     web_parser.add_argument("--config", type=str, help="path to config.toml")
     web_parser.add_argument(
-        "--host", type=str, default="127.0.0.1", help="bind address"
+        "--host",
+        type=str,
+        default=None,
+        help="bind address (overrides [web] host)",
     )
-    web_parser.add_argument("--port", type=int, default=8080, help="bind port")
+    web_parser.add_argument(
+        "--port", type=int, default=None, help="bind port (overrides [web] port)"
+    )
 
     args = parser.parse_args()
     command = args.command or "run"
     # Early setup so config-load errors are visible; re-applied from config below.
     setup_logging("DEBUG" if args.verbose else (args.log_level or "AUTO"))
 
-    config = load_config(Path(args.config) if args.config else None)
+    config_path = Path(args.config) if args.config else None
+    config = load_config(config_path)
     apply_environment(config)
     if args.verbose:
         setup_logging("DEBUG")
@@ -145,9 +156,14 @@ def cli() -> None:
     if command == "web":
         from iplayerdl.web import serve
 
-        serve(host=args.host, port=args.port)
+        serve(
+            host=args.host or config.web.host,
+            port=args.port or config.web.port,
+        )
     else:
-        run_pipeline(config)
+        if not args.urls:
+            parser.error("at least one URL is required (queue is ephemeral, never stored)")
+        run_pipeline(config, args.urls)
 
 
 if __name__ == "__main__":

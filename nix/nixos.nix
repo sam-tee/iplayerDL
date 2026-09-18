@@ -5,15 +5,15 @@
 #     services.iplayerdl = {
 #       enable = true;
 #       port = 8080;
-#       settings = {
-#         urls = [ "https://www.bbc.co.uk/iplayer/episode/..." ];
-#         folders.media_dir = "/mnt/data/media";
-#         pipeline.allow_speculative_adds = true;
-#       };
+#       settings.folders.media_dir = "/mnt/data/media";
 #       # Secrets stay out of the store: KEY=VALUE lines read by systemd.
 #       environmentFile = "/run/secrets/iplayerdl.env";
 #     };
 #   }
+#
+# IPLAYERDL_CONFIG is only set when there is a custom config (configFile
+# or non-empty settings, including host/port below). Otherwise the
+# service uses the app default config location.
 #
 # Note: keys set under settings.environment override the same keys from
 # environmentFile (the app exports the config section into the process
@@ -30,8 +30,20 @@
     let
       cfg = config.services.iplayerdl;
       toml = pkgs.formats.toml { };
-      generatedConfig = toml.generate "iplayerDL-config.toml" cfg.settings;
-      configFile = if cfg.configFile != null then cfg.configFile else generatedConfig;
+      bindSettings = {
+        web =
+          lib.optionalAttrs (cfg.host != null) { host = cfg.host; }
+          // lib.optionalAttrs (cfg.port != null) { port = cfg.port; };
+      };
+      effectiveSettings = lib.recursiveUpdate cfg.settings bindSettings;
+      generatedConfig = toml.generate "iplayerDL-config.toml" effectiveSettings;
+      configFile =
+        if cfg.configFile != null then
+          cfg.configFile
+        else if effectiveSettings != { } then
+          generatedConfig
+        else
+          null;
     in
     {
       options.services.iplayerdl = {
@@ -45,15 +57,21 @@
         };
 
         host = lib.mkOption {
-          type = lib.types.str;
-          default = "127.0.0.1";
-          description = "Bind address for the web interface.";
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = ''
+            Bind address for the web interface (written to [web] host).
+            Null uses the app default (127.0.0.1).
+          '';
         };
 
         port = lib.mkOption {
-          type = lib.types.port;
-          default = 8080;
-          description = "Port for the web interface.";
+          type = lib.types.nullOr lib.types.port;
+          default = null;
+          description = ''
+            Port for the web interface (written to [web] port).
+            Null uses the app default (8080).
+          '';
         };
 
         user = lib.mkOption {
@@ -122,13 +140,16 @@
       config = lib.mkIf cfg.enable {
         assertions = [
           {
-            assertion = cfg.configFile == null || cfg.settings == { };
-            message = "services.iplayerdl: set either configFile or settings, not both.";
+            assertion =
+              cfg.configFile == null
+              || (cfg.settings == { } && cfg.host == null && cfg.port == null);
+            message = "services.iplayerdl: configFile is mutually exclusive with settings/host/port.";
           }
         ];
 
         networking.firewall = lib.mkIf cfg.openFirewall {
-          allowedTCPPorts = [ cfg.port ];
+          # Null port means the app default (8080).
+          allowedTCPPorts = [ (if cfg.port != null then cfg.port else 8080) ];
         };
 
         systemd.services.iplayerdl = {
@@ -136,18 +157,12 @@
           after = [ "network-online.target" ];
           wants = [ "network-online.target" ];
           wantedBy = [ "multi-user.target" ];
-          environment.IPLAYERDL_CONFIG = configFile;
+          environment = lib.mkIf (configFile != null) {
+            IPLAYERDL_CONFIG = configFile;
+          };
           serviceConfig = {
             ExecStart = lib.concatStringsSep " " (
-              [
-                "${cfg.package}/bin/iplayerdl"
-                "web"
-                "--host"
-                cfg.host
-                "--port"
-                (toString cfg.port)
-              ]
-              ++ cfg.extraArgs
+              [ "${cfg.package}/bin/iplayerdl" "web" ] ++ cfg.extraArgs
             );
             WorkingDirectory = "/var/lib/iplayerdl";
             StateDirectory = "iplayerdl";
