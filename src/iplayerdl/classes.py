@@ -72,7 +72,7 @@ class NtfyConfig:
 
 @dataclass
 class LoggingConfig:
-    level: str = "WARNING"
+    level: str = "auto"
 
 
 @dataclass

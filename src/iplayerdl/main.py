@@ -131,7 +131,7 @@ def cli() -> None:
     args = parser.parse_args()
     command = args.command or "run"
     # Early setup so config-load errors are visible; re-applied from config below.
-    setup_logging("DEBUG" if args.verbose else (args.log_level or "WARNING"))
+    setup_logging("DEBUG" if args.verbose else (args.log_level or "AUTO"))
 
     config = load_config(Path(args.config) if args.config else None)
     apply_environment(config)

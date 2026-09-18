@@ -1,6 +1,12 @@
-"""Central logging setup: console level comes from config, default WARNING."""
+"""Central logging setup: console level comes from config, default auto.
+
+`auto` (the default) means INFO on an interactive terminal and WARNING
+everywhere else (systemd services, pipes, cron), so the journal stays
+quiet unless the config pins a level explicitly.
+"""
 
 import logging
+import os
 import sys
 
 _FORMAT = "%(asctime)s %(levelname)-7s [%(threadName)s] %(name)s: %(message)s"
@@ -15,26 +21,49 @@ _LEVELS = {
     "NOTSET": logging.NOTSET,
 }
 
+# Environment variables systemd always sets for services it supervises.
+_SYSTEMD_ENV_VARS = ("INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID")
+
+
+def running_under_systemd() -> bool:
+    """Detect execution as a systemd service (journal gets our stderr)."""
+    return any(os.getenv(var) for var in _SYSTEMD_ENV_VARS)
+
+
+def interactive_console() -> bool:
+    """True when a human is likely watching stderr right now."""
+    try:
+        return sys.stderr.isatty() and not running_under_systemd()
+    except Exception:  # noqa: BLE001 - logging detection must never fail
+        return False
+
+
+def auto_level() -> int:
+    """Context default: INFO for interactive use, WARNING otherwise."""
+    return logging.INFO if interactive_console() else logging.WARNING
+
 
 def normalize_level(level: str | int | None) -> int:
     if isinstance(level, int):
         return level
     if not level:
-        return logging.WARNING
+        return auto_level()
     key = str(level).strip().upper()
+    if key == "AUTO":
+        return auto_level()
     return _LEVELS.get(key, logging.WARNING)
 
 
 def get_log_level(config: object | None) -> int:
-    """Extract the configured console log level, defaulting to WARNING."""
+    """Effective console log level: explicit config wins, else auto."""
     try:
         level = getattr(getattr(config, "logging", None), "level", None)
     except Exception:  # noqa: BLE001 - never break startup over logging config
         level = None
-    return normalize_level(level if level is not None else "WARNING")
+    return normalize_level(level if level is not None else "AUTO")
 
 
-def setup_logging(level: str | int | None = "WARNING") -> int:
+def setup_logging(level: str | int | None = "AUTO") -> int:
     """Configure the root logger for console output at the given level.
 
     Only the console handler is managed here; other handlers (e.g. the web

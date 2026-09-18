@@ -90,10 +90,12 @@ DEFAULT_CONFIG = """# iplayerDL settings
 # "What We Do in the Shadows, Series 3, The Wellness Centre" = "What We Do in the Shadows, Series 3, The Wellness Center"
 # [title_overrides]
 
-# Console log level. Only records at this level and above reach the console
-# (and the web UI log). One of DEBUG, INFO, WARNING, ERROR, CRITICAL.
+# Console log level: an explicit value wins everywhere. "auto" (the
+# default) means INFO on an interactive terminal and WARNING otherwise
+# (systemd journal, pipes, cron), keeping unattended logs quiet.
+# One of auto, DEBUG, INFO, WARNING, ERROR, CRITICAL.
 # [logging]
-# level = "WARNING"
+# level = "auto"
 """
 
 
@@ -125,6 +127,30 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return result
 
 
+def _split_toml_comment(line: str) -> tuple[str, str]:
+    """Split a TOML line into (code, comment).
+
+    A `#` inside a single- or double-quoted string is part of the value,
+    not a comment (e.g. passwords containing `#`). Triple-quoted
+    multi-line strings are not expected in config files.
+    """
+    in_single = False
+    in_double = False
+    escaped = False
+    for i, ch in enumerate(line):
+        if escaped:
+            escaped = False
+        elif ch == "\\" and in_double:
+            escaped = True
+        elif ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "#" and not in_single and not in_double:
+            return line[:i], line[i:]
+    return line, ""
+
+
 def _merge_environment_section(text: str, env_vars: dict[str, str]) -> str:
     """Merge key/value pairs into the [environment] section of a TOML string."""
     match = re.search(r"(?m)^\[environment\][ \t]*(?:#.*)?$", text)
@@ -136,16 +162,18 @@ def _merge_environment_section(text: str, env_vars: dict[str, str]) -> str:
     end = start + next_table.start() if next_table else len(text)
     section = text[start:end]
 
-    def _replace_line(m: re.Match) -> str:
-        key = m.group(1)
-        if key in env_vars:
-            comment = m.group(2) or ""
-            return f"{key} = {json.dumps(env_vars[key])}{comment}"
-        return m.group(0)
-
-    new_section = re.sub(
-        r"(?m)^([A-Za-z_][\w-]*)[ \t]*=.*?(?:([ \t]*#.*))?$", _replace_line, section
-    )
+    key_re = re.compile(r"^([A-Za-z_][\w-]*)[ \t]*=")
+    lines = []
+    for line in section.splitlines(keepends=True):
+        code, comment = _split_toml_comment(line.rstrip("\n"))
+        m = key_re.match(code)
+        if m and m.group(1) in env_vars:
+            eol = "\n" if line.endswith("\n") else ""
+            suffix = f" {comment.lstrip()}" if comment.strip() else ""
+            lines.append(f"{m.group(1)} = {json.dumps(env_vars[m.group(1)])}{suffix}{eol}")
+        else:
+            lines.append(line)
+    new_section = "".join(lines)
     missing = [
         key
         for key in env_vars
