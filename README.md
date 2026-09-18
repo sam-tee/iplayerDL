@@ -21,7 +21,9 @@ no matching episode is found).
    `.env` are migrated into the new `[environment]` section. Set `IPLAYERDL_CONFIG` to
    override the location.
 2. Fill in `[environment]` in `config.toml` (e.g. `TMDB_API_KEY`, `RADARR_API_KEY`) — this
-   replaces the old `.env` file.
+   replaces the old `.env` file. See `example/config.toml` and
+   `example/iplayerdl.env` for annotated starting points (secrets belong
+   in the env file, never in git or the Nix store).
 3. Adjust the rest of `config.toml` by hand or via the web interface.
    (The URL queue is ephemeral: pass URLs as `run` arguments or paste
    them into the web UI — they are never stored.)
