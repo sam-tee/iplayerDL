@@ -33,7 +33,8 @@ check_formats = true
 ignoreerrors = "only_download"
 
 [transcode_settings]
-encoder = "none" # one of "none", "qsv", "vaapi", "apple"
+# one of "none" (libsvtav1/AV1 CPU), "qsv", "vaapi", "apple"
+encoder = "none"
 quality = 20
 device = "/dev/dri/renderD128"
 crop = true
@@ -47,4 +48,5 @@ host = "127.0.0.1"
 port = 8080
 
 [logging]
-level = "auto" # auto, DEBUG, INFO, WARNING, ERROR, CRITICAL
+# one of auto, DEBUG, INFO, WARNING, ERROR, CRITICAL
+level = "auto"

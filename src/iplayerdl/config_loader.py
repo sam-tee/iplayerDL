@@ -8,44 +8,27 @@ from pathlib import Path
 from dacite import Config as DaciteConfig
 from dacite import from_dict
 
-from iplayerdl.classes import Config
+from iplayerdl.classes import DEFAULT_DOWNLOAD_SETTINGS, Config
 
 CONFIG_ENV_VAR = "IPLAYERDL_CONFIG"
 APP_DIR_NAME = "iplayerdl"
 CONFIG_FILE_NAME = "config.toml"
 
 DEFAULT_CONFIG = """# iplayerDL settings
-#
-# Everything below is commented out and shows the default value for each
-# option. To override a default, uncomment its [section] header AND the
-# option line, then change the value. (TOML files options under the most
-# recent [section] header, so uncommenting an option without its header
-# puts it in the wrong place and iplayerDL will tell you.)
-#
-# This file is created automatically at first run and lives at
-# $XDG_CONFIG_HOME/iplayerdl/config.toml (normally
-# ~/.config/iplayerdl/config.toml). Set the IPLAYERDL_CONFIG environment
-# variable to use a different location. Values from a legacy .env file next
-# to the old repo config.toml are migrated into [environment] on startup.
-#
-# The download queue is ephemeral (held in memory, never stored here):
-# pass URLs as `iplayerdl run <url> ...` arguments, or paste them into
-# the web interface (iplayerdl web).
-
 # ntfy notifications on pipeline success/failure. Leave topic empty to skip.
-# [ntfy]
+[ntfy]
 # url_base = "https://ntfy.example.com/"
 # topic = "iplayerDL"
 
 # Web interface bind address and port (iplayerdl web). Command-line
 # --host/--port flags override these when given.
-# [web]
+[web]
 # host = "127.0.0.1"
 # port = 8080
 
 # Secrets and service credentials. Exported into the process environment
 # before the pipeline runs, so nothing secret ever lives anywhere else.
-# [environment]
+[environment]
 # TMDB_API_KEY = ""
 # RADARR_URL = ""
 # RADARR_API_KEY = ""
@@ -56,25 +39,32 @@ DEFAULT_CONFIG = """# iplayerDL settings
 
 # Filesystem locations. Relative paths resolve against the working directory
 # of the iplayerdl process.
-# [folders]
-# download_dir = "./download"  # where full-quality files are downloaded to
-# media_dir = ""               # where finished files are written after transcode
-# transcode_dir = "./transcode"  # where temporary transcode files go
+[folders]
+# where full-quality files are downloaded to
+# download_dir = "./download"
+# where finished files are written after transcode
+# media_dir = ""
+# where temporary transcode files go
+# transcode_dir = "./transcode"
 
 # Pipeline behaviour.
-# [pipeline]
-# transcode = true           # re-encode downloads with ffmpeg (false links/copies instead)
-# delete_downloads = true    # delete full-quality downloads after a successful move
-# max_non_transcoded = 5     # cap on full-quality downloads waiting for transcode/move;
-#                            # useful when delete_downloads is true and disk space is tight
-# allow_speculative_adds = false  # let the resolver add missing shows/movies to
-#                                 # Sonarr/Radarr (rolled back if no episode matches);
-#                                 # otherwise only match your existing libraries (+ TMDb fallback)
+[pipeline]
+# re-encode downloads with ffmpeg (false links/copies instead)
+# transcode = true
+# delete full-quality downloads after a successful move
+# delete_downloads = true
+# cap on full-quality downloads waiting for transcode/move;
+# useful when delete_downloads is true and disk space is tight
+# max_non_transcoded = 5
+# let the resolver add missing shows/movies to Sonarr/Radarr
+# (rolled back if no episode matches); otherwise only match your
+# existing libraries (+ TMDb fallback)
+# allow_speculative_adds = false
 
 # yt-dlp download options, passed straight through to yt-dlp. The
 # opinionated set below applies when unset; override individual keys
 # as needed.
-# [download_settings]
+[download_settings]
 # format = "bv*+ba[language=en]/bv*+ba/best"
 # subtitleslangs = ["en.*"]
 # writesubtitles = true
@@ -84,27 +74,22 @@ DEFAULT_CONFIG = """# iplayerDL settings
 # ignoreerrors = "only_download"
 
 # ffmpeg transcode options.
-# [transcode_settings]
-# encoder = "none"  # one of "none" (libsvtav1/AV1 CPU), "qsv", "vaapi", "apple"
-# quality = 20      # encoder quality; lower is better quality (larger files)
-# device = "/dev/dri/renderD128"  # GPU render node for qsv/vaapi
-# crop = true       # detect and remove letterbox/pillarbox padding
-
-# ntfy notifications on pipeline success/failure. Leave topic empty to skip.
-# [ntfy]
-# url_base = "https://ntfy.example.com/"
-# topic = "iplayerDL"
-
-# Map an iPlayer title to the exact title used for matching, e.g.
-# "What We Do in the Shadows, Series 3, The Wellness Centre" = "What We Do in the Shadows, Series 3, The Wellness Center"
-# [title_overrides]
+[transcode_settings]
+# one of "none" (libsvtav1/AV1 CPU), "qsv", "vaapi", "apple"
+# encoder = "none"
+# encoder quality; lower is better quality (larger files)
+# quality = 20
+# GPU render node for qsv/vaapi
+# device = "/dev/dri/renderD128"
+# detect and remove letterbox/pillarbox padding
+# crop = true
 
 # Console log level: an explicit value wins everywhere. "auto" (the
 # default) means WARNING on an interactive terminal and INFO otherwise
 # (systemd journal, pipes, cron), keeping live output quiet while
 # unattended logs keep full detail.
 # One of auto, DEBUG, INFO, WARNING, ERROR, CRITICAL.
-# [logging]
+[logging]
 # level = "auto"
 """
 
@@ -276,7 +261,14 @@ def load_config(config_file: Path | None = None) -> Config:
     with open(config_file, "rb") as f:
         data = tomllib.load(f)
     _check_misplaced_keys(data)
-    return from_dict(data_class=Config, data=data, config=dacite_config)
+    config = from_dict(data_class=Config, data=data, config=dacite_config)
+    # An explicitly empty [download_settings] table would otherwise shadow
+    # the opinionated code defaults with {}; merge instead so individual
+    # keys can be overridden while the rest fall back.
+    user_ds = data.get("download_settings")
+    if isinstance(user_ds, dict):
+        config.download_settings = {**DEFAULT_DOWNLOAD_SETTINGS, **user_ds}
+    return config
 
 
 def apply_environment(config: Config) -> None:
