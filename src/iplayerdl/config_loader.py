@@ -15,50 +15,85 @@ APP_DIR_NAME = "iplayerdl"
 CONFIG_FILE_NAME = "config.toml"
 
 DEFAULT_CONFIG = """# iplayerDL settings
-urls = []
+#
+# Everything below is commented out and shows the default value for each
+# option. To override a default, uncomment its [section] header AND the
+# option line, then change the value. (TOML files options under the most
+# recent [section] header, so uncommenting an option without its header
+# puts it in the wrong place and iplayerDL will tell you.)
+#
+# The urls list is special: it lives at the top level, above all [sections].
+#
+# This file is created automatically at first run and lives at
+# $XDG_CONFIG_HOME/iplayerdl/config.toml (normally
+# ~/.config/iplayerdl/config.toml). Set the IPLAYERDL_CONFIG environment
+# variable to use a different location. Values from a legacy .env file next
+# to the old repo config.toml are migrated into [environment] on startup.
+#
+# The web interface (iplayerdl web) can edit this file for you.
 
-# Environment variables to load into the process before the pipeline runs.
-[environment]
-TMDB_API_KEY = ""
-RADARR_URL = ""
-RADARR_API_KEY = ""
-SONARR_URL = ""
-SONARR_API_KEY = ""
-CBC_EMAIL = ""
-CBC_PASSWORD = ""
+# URLs to process. Saving URLs in the web interface replaces this list.
+# urls = []
 
-[folders]
-download_dir = "./download" # where files will be downloaded to
-media_dir = ""              # where files will be written to after transcode
-transcode_dir = "./transcode"
+# Secrets and service credentials. Exported into the process environment
+# before the pipeline runs, so nothing secret ever lives anywhere else.
+# [environment]
+# TMDB_API_KEY = ""
+# RADARR_URL = ""
+# RADARR_API_KEY = ""
+# SONARR_URL = ""
+# SONARR_API_KEY = ""
+# CBC_EMAIL = ""
+# CBC_PASSWORD = ""
 
-[pipeline]
-transcode = true
-delete_downloads = true
-max_non_transcoded = 5
-allow_speculative_adds = false
+# Filesystem locations. Relative paths resolve against the working directory
+# of the iplayerdl process.
+# [folders]
+# download_dir = "./download"  # where full-quality files are downloaded to
+# media_dir = ""               # where finished files are written after transcode
+# transcode_dir = "./transcode"  # where temporary transcode files go
 
-[download_settings]
-format = "bv*+ba[language=en]/bv*+ba/best"
-subtitleslangs = ["en.*"]
-writesubtitles = true
-quiet = true
-noprogress = false
-check_formats = true
-ignoreerrors = "only_download"
+# Pipeline behaviour.
+# [pipeline]
+# transcode = true           # re-encode downloads with ffmpeg (false links/copies instead)
+# delete_downloads = true    # delete full-quality downloads after a successful move
+# max_non_transcoded = 5     # cap on full-quality downloads waiting for transcode/move;
+#                            # useful when delete_downloads is true and disk space is tight
+# allow_speculative_adds = false  # let the resolver add missing shows/movies to
+#                                 # Sonarr/Radarr (rolled back if no episode matches);
+#                                 # otherwise only match your existing libraries (+ TMDb fallback)
 
-[transcode_settings]
-encoder = "none" # one of qsv, vaapi, none
-quality = 20
-device = "/dev/dri/renderD128"
-crop = true
+# yt-dlp download options, passed straight through to yt-dlp. Absent keys
+# fall back to yt-dlp's own defaults.
+# [download_settings]
+# format = "bv*+ba[language=en]/bv*+ba/best"
+# subtitleslangs = ["en.*"]
+# writesubtitles = true
+# quiet = true
+# noprogress = false
+# check_formats = true
+# ignoreerrors = "only_download"
 
-[ntfy]
-url_base = "https://ntfy.example.com/"
-topic = "iplayerDL"
+# ffmpeg transcode options.
+# [transcode_settings]
+# encoder = "none"  # one of "none" (libsvtav1/AV1 CPU), "qsv", "vaapi", "apple"
+# quality = 20      # encoder quality; lower is better quality (larger files)
+# device = "/dev/dri/renderD128"  # GPU render node for qsv/vaapi
+# crop = true       # detect and remove letterbox/pillarbox padding
 
-[logging]
-level = "WARNING" # one of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# ntfy notifications on pipeline success/failure. Leave topic empty to skip.
+# [ntfy]
+# url_base = "https://ntfy.example.com/"
+# topic = "iplayerDL"
+
+# Map an iPlayer title to the exact title used for matching, e.g.
+# "What We Do in the Shadows, Series 3, The Wellness Centre" = "What We Do in the Shadows, Series 3, The Wellness Center"
+# [title_overrides]
+
+# Console log level. Only records at this level and above reach the console
+# (and the web UI log). One of DEBUG, INFO, WARNING, ERROR, CRITICAL.
+# [logging]
+# level = "WARNING"
 """
 
 
@@ -150,12 +185,58 @@ def ensure_config(path: Path) -> Path:
     return path
 
 
+ROOT_TABLES = frozenset(
+    {
+        "urls",
+        "environment",
+        "folders",
+        "pipeline",
+        "download_settings",
+        "transcode_settings",
+        "title_overrides",
+        "ntfy",
+        "logging",
+    }
+)
+
+
+def _check_misplaced_keys(data: dict) -> None:
+    """Point out root-level keys accidentally nested inside a [table].
+
+    With everything commented out by default it is easy to uncomment (or
+    append) e.g. `urls` underneath a live [table] header. TOML then files it
+    under that table and dacite would fail cryptically, so raise a clear
+    error naming only the offending keys (never their values, which may be
+    secrets).
+    """
+    for table, values in data.items():
+        if not isinstance(values, dict):
+            continue
+        misplaced = sorted(ROOT_TABLES.intersection(values) - {table})
+        if misplaced:
+            raise ValueError(
+                f"Invalid config: {', '.join(repr(k) for k in misplaced)} "
+                f"must be top-level, but was found inside [{table}]. "
+                "Move it above the first [table] header (or uncomment its own "
+                "[section] header)."
+            )
+    env = data.get("environment")
+    if isinstance(env, dict):
+        non_strings = sorted(k for k, v in env.items() if not isinstance(v, str))
+        if non_strings:
+            raise ValueError(
+                f"Invalid config: [{', '.join(non_strings)}] inside "
+                "[environment] must be strings (e.g. key = \"value\")."
+            )
+
+
 def load_config(config_file: Path | None = None) -> Config:
     dacite_config = DaciteConfig(type_hooks={Path: Path})
     if config_file is None:
         config_file = ensure_config(get_config_path())
     with open(config_file, "rb") as f:
         data = tomllib.load(f)
+    _check_misplaced_keys(data)
     return from_dict(data_class=Config, data=data, config=dacite_config)
 
 

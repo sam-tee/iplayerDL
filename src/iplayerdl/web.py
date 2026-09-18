@@ -8,7 +8,7 @@ from collections import deque
 from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from iplayerdl.config_loader import get_config_path
+from iplayerdl.config_loader import ensure_config, get_config_path
 from iplayerdl.main import run_pipeline
 from iplayerdl.tracker import tracker as job_tracker
 
@@ -119,7 +119,7 @@ runner = PipelineRunner()
 
 
 def _read_config_text() -> str:
-    return get_config_path().read_text()
+    return ensure_config(get_config_path()).read_text()
 
 
 def _validate_toml(text: str) -> None:
@@ -135,7 +135,10 @@ def _replace_urls(text: str, urls: list[str]) -> str:
     # so a `]` inside a URL or comment doesn't terminate early.
     header = re.search(r"(?m)^\s*urls\s*=\s*\[", text)
     if header is None:
-        raise ValueError("Could not find a 'urls = [...]' array in config.toml")
+        # No live array (e.g. the default template ships fully commented out).
+        # Prepend one at the top of the file: root-level keys must come before
+        # any [table], so position 0 is always valid TOML.
+        return _build_urls_block(urls) + text
     start = header.start()
     i = header.end()  # after '['
     depth = 1
@@ -194,6 +197,11 @@ def _replace_urls(text: str, urls: list[str]) -> str:
     # header.group() contains leading whitespace + 'urls = ['; keep it verbatim
     prefix = text[start : header.end()]
     suffix = "]"
+    replacement = f"{prefix}{_urls_body(urls)}{suffix}"
+    return text[:start] + replacement + text[i:]
+
+
+def _urls_body(urls: list[str]) -> str:
     seen: set[str] = set()
     entries = []
     for url in urls:
@@ -203,9 +211,11 @@ def _replace_urls(text: str, urls: list[str]) -> str:
         escaped_url = url.replace("\\", "\\\\").replace('"', '\\"')
         entries.append(f'"{escaped_url}",')
         seen.add(url)
-    body = ("\n" + "\n".join(entries) + "\n") if entries else ""
-    replacement = f"{prefix}{body}{suffix}"
-    return text[:start] + replacement + text[i:]
+    return ("\n" + "\n".join(entries) + "\n") if entries else ""
+
+
+def _build_urls_block(urls: list[str]) -> str:
+    return f"urls = [{_urls_body(urls)}]\n\n"
 
 
 def _current_urls() -> list[str]:
@@ -218,6 +228,7 @@ def _current_urls() -> list[str]:
 
 def _save_config(text: str) -> None:
     path = get_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text)
     tmp.replace(path)

@@ -19,16 +19,16 @@ class Task:
 
 @dataclass
 class Folders:
-    download_dir: Path
-    media_dir: Path
-    transcode_dir: Path
+    download_dir: Path = Path("./download")
+    media_dir: Path = Path("")
+    transcode_dir: Path = Path("./transcode")
 
 
 @dataclass
 class Pipeline:
-    transcode: bool
-    delete_downloads: bool
-    max_non_transcoded: int | None = None
+    transcode: bool = True
+    delete_downloads: bool = True
+    max_non_transcoded: int | None = 5
     allow_speculative_adds: bool = False
 
 
@@ -58,16 +58,16 @@ class Stats:
 
 @dataclass
 class TranscodeSettings:
-    device: str
-    quality: int
-    encoder: str
-    crop: bool
+    device: str = "/dev/dri/renderD128"
+    quality: int = 20
+    encoder: str = "none"
+    crop: bool = True
 
 
 @dataclass
 class NtfyConfig:
-    url_base: str
-    topic: str
+    url_base: str = "https://ntfy.example.com/"
+    topic: str = "iplayerDL"
 
 
 @dataclass
@@ -77,11 +77,11 @@ class LoggingConfig:
 
 @dataclass
 class Config:
-    folders: Folders
-    urls: list[str]
-    pipeline: Pipeline
-    transcode_settings: TranscodeSettings
-    ntfy: NtfyConfig
+    folders: Folders = field(default_factory=Folders)
+    urls: list[str] = field(default_factory=list)
+    pipeline: Pipeline = field(default_factory=Pipeline)
+    transcode_settings: TranscodeSettings = field(default_factory=TranscodeSettings)
+    ntfy: NtfyConfig = field(default_factory=NtfyConfig)
     download_settings: dict = field(default_factory=dict)
     title_overrides: dict = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
