@@ -13,9 +13,9 @@
 # (e.g. the NixOS module's environmentFile), or fill in [environment].
 
 [folders]
-download_dir = "./download"
-media_dir = ""
-transcode_dir = "./transcode"
+download_dir = "/tmp/iplayerdl/download"
+media_dir = "/var/lib/iplayerdl"
+transcode_dir = "/tmp/iplayerdl/transcode"
 
 [pipeline]
 transcode = true

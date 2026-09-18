@@ -9,7 +9,16 @@ from pathlib import Path
 from dacite import Config as DaciteConfig
 from dacite import from_dict
 
-from iplayerdl.classes import DEFAULT_DOWNLOAD_SETTINGS, Config
+from iplayerdl.classes import (
+    DEFAULT_DOWNLOAD_SETTINGS,
+    Config,
+    Folders,
+    LoggingConfig,
+    NtfyConfig,
+    Pipeline,
+    TranscodeSettings,
+    WebConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,84 +26,149 @@ CONFIG_ENV_VAR = "IPLAYERDL_CONFIG"
 APP_DIR_NAME = "iplayerdl"
 CONFIG_FILE_NAME = "config.toml"
 
-DEFAULT_CONFIG = """# iplayerDL settings
-# ntfy notifications on pipeline success/failure. Leave topic empty to skip.
-[ntfy]
-# url_base = "https://ntfy.example.com/"
-# topic = "iplayerDL"
+# Secret names documented under [environment]. The section itself defaults
+# to empty; these render commented-out so the names stay discoverable.
+KNOWN_ENVIRONMENT_KEYS = (
+    "TMDB_API_KEY",
+    "RADARR_URL",
+    "RADARR_API_KEY",
+    "SONARR_URL",
+    "SONARR_API_KEY",
+    "CBC_EMAIL",
+    "CBC_PASSWORD",
+)
 
-# Web interface bind address and port (iplayerdl web). Command-line
-# --host/--port flags override these when given.
-[web]
-# host = "127.0.0.1"
-# port = 8080
 
-# Secrets and service credentials. Exported into the process environment
-# before the pipeline runs, so nothing secret ever lives anywhere else.
-[environment]
-# TMDB_API_KEY = ""
-# RADARR_URL = ""
-# RADARR_API_KEY = ""
-# SONARR_URL = ""
-# SONARR_API_KEY = ""
-# CBC_EMAIL = ""
-# CBC_PASSWORD = ""
+def _toml_literal(value: object) -> str:
+    """Render a dataclass default as TOML (loudly fails on new types)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, Path):
+        return json.dumps(str(value))
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_literal(v) for v in value) + "]"
+    raise ValueError(f"Cannot render default {value!r} as TOML")
 
-# Filesystem locations. Relative paths resolve against the working directory
-# of the iplayerdl process.
-[folders]
-# where full-quality files are downloaded to
-# download_dir = "./download"
-# where finished files are written after transcode
-# media_dir = ""
-# where temporary transcode files go
-# transcode_dir = "./transcode"
 
-# Pipeline behaviour.
-[pipeline]
-# re-encode downloads with ffmpeg (false links/copies instead)
-# transcode = true
-# delete full-quality downloads after a successful move
-# delete_downloads = true
-# cap on full-quality downloads waiting for transcode/move;
-# useful when delete_downloads is true and disk space is tight
-# max_non_transcoded = 5
-# let the resolver add missing shows/movies to Sonarr/Radarr
-# (rolled back if no episode matches); otherwise only match your
-# existing libraries (+ TMDb fallback)
-# allow_speculative_adds = false
+def _section(
+    table: str, blurb: list[str], keys: list[tuple[str, object, list[str]]]
+) -> str:
+    """Render one commented-out TOML table; values always come from live defaults."""
+    lines = [f"# {line}" for line in blurb] + [f"[{table}]"]
+    for key, value, doc in keys:
+        lines.extend(f"# {line}" for line in doc)
+        lines.append(f"# {key} = {_toml_literal(value)}")
+    return "\n".join(lines)
 
-# yt-dlp download options, passed straight through to yt-dlp. The
-# opinionated set below applies when unset; override individual keys
-# as needed.
-[download_settings]
-# format = "bv*+ba[language=en]/bv*+ba/best"
-# subtitleslangs = ["en.*"]
-# writesubtitles = true
-# quiet = true
-# noprogress = false
-# check_formats = true
-# ignoreerrors = "only_download"
 
-# ffmpeg transcode options.
-[transcode_settings]
-# one of "none" (libsvtav1/AV1 CPU), "qsv", "vaapi", "apple"
-# encoder = "none"
-# encoder quality; lower is better quality (larger files)
-# quality = 20
-# GPU render node for qsv/vaapi
-# device = "/dev/dri/renderD128"
-# detect and remove letterbox/pillarbox padding
-# crop = true
+def _build_default_config() -> str:
+    """Generate the default config template from the dataclass defaults.
 
-# Console log level: an explicit value wins everywhere. "auto" (the
-# default) means WARNING on an interactive terminal and INFO otherwise
-# (systemd journal, pipes, cron), keeping live output quiet while
-# unattended logs keep full detail.
-# One of auto, DEBUG, INFO, WARNING, ERROR, CRITICAL.
-[logging]
-# level = "auto"
-"""
+    Values are read from live class instances, so the template can never
+    drift from the code. Only the prose docs below are hand-written.
+    """
+    folders = Folders()
+    pipeline = Pipeline()
+    transcode = TranscodeSettings()
+    ntfy = NtfyConfig()
+    web = WebConfig()
+    logging_cfg = LoggingConfig()
+    parts = [
+        "# iplayerDL settings",
+        _section(
+            "ntfy",
+            ["ntfy notifications on pipeline success/failure. Leave topic empty to skip."],
+            [("url_base", ntfy.url_base, []), ("topic", ntfy.topic, [])],
+        ),
+        _section(
+            "web",
+            [
+                "Web interface bind address and port (iplayerdl web). Command-line",
+                "--host/--port flags override these when given.",
+            ],
+            [("host", web.host, []), ("port", web.port, [])],
+        ),
+        _section(
+            "environment",
+            [
+                "Secrets and service credentials. Exported into the process environment",
+                "before the pipeline runs, so nothing secret ever lives anywhere else.",
+            ],
+            [(key, "", []) for key in KNOWN_ENVIRONMENT_KEYS],
+        ),
+        _section(
+            "folders",
+            ["Filesystem locations."],
+            [
+                ("download_dir", folders.download_dir, ["where full-quality files are downloaded to"]),
+                ("media_dir", folders.media_dir, ["where finished files are written after transcode"]),
+                ("transcode_dir", folders.transcode_dir, ["where temporary transcode files go"]),
+            ],
+        ),
+        _section(
+            "pipeline",
+            ["Pipeline behaviour."],
+            [
+                ("transcode", pipeline.transcode, ["re-encode downloads with ffmpeg (false links/copies instead)"]),
+                ("delete_downloads", pipeline.delete_downloads, ["delete full-quality downloads after a successful move"]),
+                (
+                    "max_non_transcoded",
+                    pipeline.max_non_transcoded,
+                    [
+                        "cap on full-quality downloads waiting for transcode/move;",
+                        "useful when delete_downloads is true and disk space is tight",
+                    ],
+                ),
+                (
+                    "allow_speculative_adds",
+                    pipeline.allow_speculative_adds,
+                    [
+                        "let the resolver add missing shows/movies to Sonarr/Radarr",
+                        "(rolled back if no episode matches); otherwise only match your",
+                        "existing libraries (+ TMDb fallback)",
+                    ],
+                ),
+            ],
+        ),
+        _section(
+            "download_settings",
+            [
+                "yt-dlp download options, passed straight through to yt-dlp. The",
+                "opinionated set below applies when unset; override individual keys",
+                "as needed.",
+            ],
+            [(key, value, []) for key, value in DEFAULT_DOWNLOAD_SETTINGS.items()],
+        ),
+        _section(
+            "transcode_settings",
+            ["ffmpeg transcode options."],
+            [
+                ("encoder", transcode.encoder, ['one of "none" (libsvtav1/AV1 CPU), "qsv", "vaapi", "apple"']),
+                ("quality", transcode.quality, ["encoder quality; lower is better quality (larger files)"]),
+                ("device", transcode.device, ["GPU render node for qsv/vaapi"]),
+                ("crop", transcode.crop, ["detect and remove letterbox/pillarbox padding"]),
+            ],
+        ),
+        _section(
+            "logging",
+            [
+                "Console log level: an explicit value wins everywhere. \"auto\" (the",
+                "default) means WARNING on an interactive terminal and INFO otherwise",
+                "(systemd journal, pipes, cron), keeping live output quiet while",
+                "unattended logs keep full detail.",
+                "One of auto, DEBUG, INFO, WARNING, ERROR, CRITICAL.",
+            ],
+            [("level", logging_cfg.level, [])],
+        ),
+    ]
+    return "\n\n".join(parts) + "\n"
+
+
+DEFAULT_CONFIG = _build_default_config()
 
 
 def get_config_path() -> Path:

@@ -19,9 +19,9 @@ class Task:
 
 @dataclass
 class Folders:
-    download_dir: Path = Path("./download")
-    media_dir: Path = Path("")
-    transcode_dir: Path = Path("./transcode")
+    download_dir: Path = Path("/tmp/iplayerdl/download")
+    media_dir: Path = Path("/var/lib/iplayerdl")
+    transcode_dir: Path = Path("/tmp/iplayerdl/transcode")
 
 
 @dataclass
