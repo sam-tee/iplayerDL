@@ -9,6 +9,25 @@ class DownloadCancelled(Exception):
 
 
 @dataclass
+class TmdbPin:
+    """A TMDb result the user picked by hand when queueing an item.
+
+    When set, metadata resolution skips Sonarr/Radarr entirely and looks the
+    media up on TMDb by id, so ambiguous titles (several remakes, similarly
+    named shows) resolve the way the user intended.
+    """
+
+    kind: str  # "tv" or "movie"
+    id: int
+    title: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("tv", "movie"):
+            raise ValueError(f"kind must be 'tv' or 'movie', not {self.kind!r}")
+        self.id = int(self.id)
+
+
+@dataclass
 class Task:
     input_file: Path
     transcode_file: Path
@@ -82,13 +101,16 @@ class LoggingConfig:
 
 
 # Opinionated yt-dlp defaults, applied when [download_settings] is absent.
+# check_formats is False because the BBC extractor lists ~200 formats per
+# episode and verifying each one means fetching every manifest: ~209s vs ~15s
+# for a 12-episode series. Format selection from the playlist is reliable.
 DEFAULT_DOWNLOAD_SETTINGS: dict = {
     "format": "bv*+ba[language=en]/bv*+ba/best",
     "subtitleslangs": ["en.*"],
     "writesubtitles": True,
     "quiet": True,
     "noprogress": False,
-    "check_formats": True,
+    "check_formats": False,
     "ignoreerrors": "only_download",
 }
 

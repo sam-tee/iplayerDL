@@ -5,7 +5,9 @@ from difflib import SequenceMatcher, get_close_matches
 from functools import cache
 
 from iplayerdl import arr
+from iplayerdl.classes import TmdbPin
 from iplayerdl.info import get_media_name as tmdb_media_name
+from iplayerdl.info import resolve_pinned
 
 logger = logging.getLogger(__name__)
 
@@ -285,8 +287,23 @@ def resolve_media_name(
     overrides: dict | None = None,
     trace: list | None = None,
     allow_adds: bool = False,
+    pin: TmdbPin | None = None,
 ) -> str | None:
     overrides = overrides or {}
+    if pin is not None:
+        # The user picked this TMDb entry when queueing the item, so it wins
+        # over the fuzzy Sonarr/Radarr chain. If the pin yields nothing (e.g.
+        # the episode name is not on TMDb) fall through rather than fail, so a
+        # stale pin can never cost a download.
+        if trace is not None:
+            trace.append(f"pin:{pin.kind}:{pin.id} ({pin.title})")
+        pinned = resolve_pinned(pin, title, overrides)
+        if pinned is not None:
+            if trace is not None:
+                trace.append(f"pin:resolved {pinned}")
+            return pinned
+        if trace is not None:
+            trace.append("pin:no-match, falling back to resolver chain")
     title = overrides.get(title, title)
     show, season, ep_name = split_title(title)
     result = resolve_series(show, season, ep_name, trace, allow_adds)

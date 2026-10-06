@@ -1,9 +1,14 @@
+import logging
 import re
 
-from tmdbv3api import TV, Movie, Season, TMDb
+from tmdbv3api import TV, Movie, Search, Season, TMDb
 from tmdbv3api.exceptions import TMDbException
 
+from iplayerdl.classes import TmdbPin
+
 tmdb = TMDb()
+
+logger = logging.getLogger(__name__)
 
 # Keep in sync with resolver.part_number — both normalise "Part One/Two/Three" → "(n)"
 _PART_NUMBERS = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
@@ -119,6 +124,148 @@ def get_media_name(title: str, overrides: dict) -> str | None:
         return tv_name
     movie_name = find_movie(title)
     return movie_name
+
+
+def search_tmdb(query: str, limit: int = 8) -> list[dict]:
+    """Search TMDb for TV shows and films matching a free-text query.
+
+    Returns a list of candidate dicts, each with keys ``kind``, ``id``,
+    ``title``, ``year``, ``overview`` and ``poster`` — everything the
+    interactive picker needs to present a choice. TV results come first
+    since most iPlayer/CBC items are episodes.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+    search = Search()
+    results: list[dict] = []
+    try:
+        tv_results = list(search.tv_shows(query).results)
+    except (TMDbException, AttributeError) as e:
+        logger.warning(
+            "TMDb tv search failed for %r: %s: %s", query, type(e).__name__, e
+        )
+        tv_results = []
+    try:
+        movie_results = list(search.movies(query).results)
+    except (TMDbException, AttributeError) as e:
+        logger.warning(
+            "TMDb movie search failed for %r: %s: %s", query, type(e).__name__, e
+        )
+        movie_results = []
+
+    for show in tv_results[:limit]:
+        name = getattr(show, "name", None)
+        show_id = getattr(show, "id", None)
+        if not name or not show_id:
+            # No usable id means the result cannot be pinned, so drop it
+            # rather than offer a choice that could not be stored.
+            continue
+        year = _year(getattr(show, "first_air_date", None))
+        results.append(
+            {
+                "kind": "tv",
+                "id": int(show_id),
+                "title": f"{name} ({year})" if year else name,
+                "name": name,
+                "year": year,
+                "overview": (getattr(show, "overview", "") or "").strip(),
+                "poster": getattr(show, "poster_path", None),
+            }
+        )
+    for film in movie_results[:limit]:
+        name = getattr(film, "title", None)
+        film_id = getattr(film, "id", None)
+        if not name or not film_id:
+            continue
+        year = _year(getattr(film, "release_date", None))
+        results.append(
+            {
+                "kind": "movie",
+                "id": int(film_id),
+                "title": f"{name} ({year})" if year else name,
+                "name": name,
+                "year": year,
+                "overview": (getattr(film, "overview", "") or "").strip(),
+                "poster": getattr(film, "poster_path", None),
+            }
+        )
+    return results
+
+
+def _series_path(show_name: str, year: str, ep, season_number: int) -> str:
+    name_year = f"{show_name} ({year})" if year else show_name
+    season_dir = f"Season {season_number:02d}" if season_number != 0 else "Specials"
+    return (
+        f"tv/{name_year}/{season_dir}/"
+        f"{name_year} - S{season_number:02d}E{ep.episode_number:02d} - {ep.name}"
+    )
+
+
+def resolve_tv_pin(pin: TmdbPin, show_data: dict) -> str | None:
+    """Resolve an episode against a TMDb show id the user picked.
+
+    Same episode-name matching as :func:`find_series`, but against a single
+    known show instead of the top three search hits.
+    """
+    if pin.kind != "tv":
+        return None
+    try:
+        show = TV().details(pin.id)
+    except TMDbException as e:
+        logger.warning(
+            "TMDb details failed for tv id %s: %s: %s", pin.id, type(e).__name__, e
+        )
+        return None
+    show_name = getattr(show, "name", None)
+    if not show_name:
+        logger.warning("TMDb tv id %s has no title; cannot pin it", pin.id)
+        return None
+    season = Season()
+    try:
+        episodes = season.details(pin.id, show_data["series_num"]).episodes
+    except TMDbException:
+        episodes = []
+    try:
+        specials = season.details(pin.id, 0).episodes
+    except TMDbException:
+        specials = []
+    ep_name = show_data["episode_name"].lower()
+    for ep in list(episodes) + list(specials):
+        ep_name_comp = str(ep.name).lower()
+        if "episode" in ep_name and ep_name != ep_name_comp:
+            continue
+        if (ep_name in ep_name_comp) or (ep_name_comp in ep_name):
+            year = _year(getattr(show, "first_air_date", None))
+            return _series_path(show_name, year, ep, ep.season_number)
+    return None
+
+
+def resolve_movie_pin(pin: TmdbPin) -> str | None:
+    """Resolve a film against a TMDb movie id the user picked."""
+    if pin.kind != "movie":
+        return None
+    try:
+        details = Movie().details(pin.id)
+    except TMDbException as e:
+        logger.warning(
+            "TMDb details failed for movie id %s: %s: %s", pin.id, type(e).__name__, e
+        )
+        return None
+    name = getattr(details, "title", None)
+    if not name:
+        logger.warning("TMDb movie id %s has no title; cannot pin it", pin.id)
+        return None
+    year = _year(getattr(details, "release_date", None))
+    movie_name = f"{name} ({year})" if year else name
+    return f"film/{movie_name}/{movie_name}"
+
+
+def resolve_pinned(pin: TmdbPin, title: str, overrides: dict) -> str | None:
+    """Build a Jellyfin-style path for a user-picked TMDb result."""
+    if pin.kind == "tv":
+        return resolve_tv_pin(pin, title2show_data(title, overrides))
+    return resolve_movie_pin(pin)
 
 
 if __name__ == "__main__":
