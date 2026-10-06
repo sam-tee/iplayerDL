@@ -9,9 +9,17 @@ wheels/
 # Virtual environments
 .venv
 
+# `nix build` output symlink
+result
+
 download
 transcode
 media
+
+# The queue database lives next to config.toml, but keep it out of the repo too
+queue.db
+queue.db-wal
+queue.db-shm
 
 .env
 .env.migrated
