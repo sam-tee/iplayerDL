@@ -5,8 +5,10 @@
 # Everything omitted here falls back to built-in defaults (see the
 # auto-generated template for the full commented reference).
 #
-# The download queue is ephemeral: pass URLs as
-# `iplayerdl run <url> ...` or paste them into the web UI.
+# The download queue is a sqlite database next to this file (queue.db,
+# overridable with $IPLAYERDL_DB). Add URLs with `iplayerdl queue add
+# <url> ...` or paste them into the web UI; they are kept after the run
+# so the queue history stays visible.
 #
 # Secrets do NOT belong here — put them in iplayerdl.env (see
 # example/iplayerdl.env) and load it via your service manager
@@ -29,7 +31,7 @@ subtitleslangs = ["en.*"]
 writesubtitles = true
 quiet = true
 noprogress = false
-check_formats = true
+check_formats = false
 ignoreerrors = "only_download"
 
 [transcode_settings]
