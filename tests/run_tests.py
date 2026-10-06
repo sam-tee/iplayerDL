@@ -18,9 +18,10 @@ import sys
 import tomllib
 from pathlib import Path
 
-from iplayerdl.classes import Folders, TranscodeSettings
+from iplayerdl.classes import Folders, TmdbPin, TranscodeSettings
 from iplayerdl.config_loader import apply_environment, load_config
 from iplayerdl.download import get_info
+from iplayerdl.queue_db import QueueDB, get_db_path
 from iplayerdl.resolver import resolve_media_name, resolve_movie, resolve_series
 from iplayerdl.transcode import get_params
 
@@ -47,7 +48,9 @@ def plan_download_path(entry: dict, url: str, opts: dict) -> str | None:
     return f"{entry['title']}.{entry.get('ext', 'mp4')}"
 
 
-def resolve_entry(entry: dict, url: str, overrides: dict) -> tuple[str | None, list]:
+def resolve_entry(
+    entry: dict, url: str, overrides: dict, pin: TmdbPin | None = None
+) -> tuple[str | None, list]:
     # Dry run: never mutate Sonarr/Radarr libraries.
     allow_adds = False
     trace: list = []
@@ -59,15 +62,15 @@ def resolve_entry(entry: dict, url: str, overrides: dict) -> tuple[str | None, l
         if not series or series == title:
             name = resolve_movie(title, trace, allow_adds)
             if name is None:
-                name = resolve_media_name(title, overrides, trace, allow_adds)
+                name = resolve_media_name(title, overrides, trace, allow_adds, pin=pin)
             return name, trace
         name = resolve_series(series, int(season or 0), ep_title, trace, allow_adds)
         if name is None:
             name = resolve_movie(title, trace, allow_adds)
         if name is None:
-            name = resolve_media_name(title, overrides, trace, allow_adds)
+            name = resolve_media_name(title, overrides, trace, allow_adds, pin=pin)
         return name, trace
-    return resolve_media_name(title, overrides, trace, allow_adds), trace
+    return resolve_media_name(title, overrides, trace, allow_adds, pin=pin), trace
 
 
 def format_duration(seconds: float | None) -> str:
@@ -80,6 +83,8 @@ def format_duration(seconds: float | None) -> str:
 
 def log_entry(lines: list[str], entry_report: dict) -> None:
     lines.append(f"  [{entry_report['index']}] {entry_report['title']}")
+    if entry_report.get("pin"):
+        lines.append(f"      pin         : {entry_report['pin']}")
     lines.append(f"      source      : {entry_report['source']}")
     lines.append(f"      extractor   : {entry_report.get('extractor', '?')}")
     lines.append(f"      duration    : {entry_report.get('duration_human')}")
@@ -111,6 +116,21 @@ def main() -> None:
     )
     settings: TranscodeSettings = config.transcode_settings
     max_entries = test_cfg.get("max_entries_per_url", 0)
+    # Pinned metadata per URL, if the persistent queue has any. Opened
+    # read-only in effect: the path is only opened when the database file
+    # already exists, so a dry run never creates it, nor fails rows another
+    # process left behind, and the newest pin per URL wins so an old history
+    # row cannot shadow a fresh queue entry.
+    pins: dict[str, TmdbPin] = {}
+    try:
+        db_path = get_db_path()
+        if db_path.exists():
+            db = QueueDB(db_path)
+            for item in db.list_items():
+                if item.pin is not None:
+                    pins[item.url] = item.pin
+    except Exception as e:  # noqa: BLE001 - a missing/broken db must not stop the dry run
+        print(f"note: queue database unavailable ({type(e).__name__}: {e})")
     reports: list[dict] = []
     lines: list[str] = [
         f"iplayerDL dry-run {datetime.datetime.now(tz=datetime.UTC).isoformat(timespec='seconds')}",
@@ -152,10 +172,13 @@ def main() -> None:
                 continue
             rel_path = plan_download_path(entry, url, opts)
             title = entry.get("title", "")
-            resolved, trace = resolve_entry(entry, url, config.title_overrides)
+            # Any item queued with a TMDb pin resolves against that id.
+            pin = pins.get(url)
+            resolved, trace = resolve_entry(entry, url, config.title_overrides, pin)
             report = {
                 "url": url,
                 "index": idx,
+                "pin": f"{pin.kind}:{pin.id}" if pin else None,
                 "source": "cbc" if is_cbc(url) else "bbc",
                 "extractor": entry.get("extractor_key", ""),
                 "title": title,
