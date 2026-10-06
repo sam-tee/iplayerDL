@@ -8,7 +8,7 @@ from threading import BoundedSemaphore
 
 import yt_dlp
 
-from iplayerdl.classes import DownloadCancelled, Folders, Stats, Task
+from iplayerdl.classes import DownloadCancelled, Folders, Stats, Task, TmdbPin
 from iplayerdl.resolver import resolve_media_name
 from iplayerdl.subtitles import convert_file
 from iplayerdl.tracker import tracker
@@ -35,6 +35,66 @@ def _progress_hook(url: str):
     return hook
 
 
+def is_subtitles_only(opts: dict) -> bool:
+    """True when yt-dlp is configured to skip media but still write subs."""
+    return bool(opts.get("skip_download"))
+
+
+def find_subtitle_files(
+    directory: Path,
+    stem: str,
+    min_mtime: float | None = None,
+) -> list[Path]:
+    """Locate freshly written subtitle files sharing ``stem``.
+
+    Mirrors the ``title.*.*`` glob used by :func:`post_download` but filters
+    by modification time so a retry never picks up stale files from a
+    previous run.
+    """
+    candidates = [
+        path
+        for path in directory.glob(f"{globmod.escape(stem)}.*.*")
+        if not path.name.endswith(".converted.srt")
+        and path.suffix.lower() not in VIDEO_EXTS | {".part", ".ytdl"}
+    ]
+    if min_mtime is not None:
+        fresh = [p for p in candidates if p.stat().st_mtime >= min_mtime - 1.0]
+        return sorted(fresh, key=lambda p: p.stat().st_mtime)
+    return sorted(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def convert_first_subtitle(sub_paths: list[Path], dest: Path) -> bool:
+    """Convert the first usable subtitle to ``dest``; True on success."""
+    converted = False
+    for file in sub_paths:
+        if converted:
+            logger.warning("Skipping extra subtitle %s (already have %s)", file.name, dest.name)
+            continue
+        try:
+            convert_file(file, dest)
+            converted = True
+        except Exception as e:  # noqa: BLE001 - one bad subtitle must not kill the pipeline
+            logger.error(
+                "Subtitle conversion failed for %s: %s: %s",
+                file.name,
+                type(e).__name__,
+                e,
+            )
+    return converted
+
+
+def _cleanup_extra_subtitles(sub_paths: list[Path], dest_name: str) -> None:
+    """Remove leftover subtitle files after a successful conversion."""
+    for file in sub_paths:
+        if not file.exists():
+            continue
+        try:
+            file.unlink()
+            logger.debug("Removed extra subtitle %s (kept %s)", file.name, dest_name)
+        except OSError as e:
+            logger.warning("Could not remove extra subtitle %s: %s", file.name, e)
+
+
 def acquire_download_slot(download_slots: BoundedSemaphore | None):
     if download_slots is not None:
         logger.debug("Waiting for non-transcoded download slot")
@@ -47,8 +107,13 @@ def release_download_slot(download_slots: BoundedSemaphore | None):
 
 
 def get_info(url: str, opts: dict | None = None) -> dict | None:
-    """Downloads information from url (does not mutate the caller's opts)."""
-    opts = dict(opts or {}, quiet=True)
+    """Downloads information from url (does not mutate the caller's opts).
+
+    ``check_formats`` is always off here: metadata only needs the format
+    list, and verifying every manifest costs ~209s vs ~15s on a 12-episode
+    series. Availability is resolved at download time instead.
+    """
+    opts = dict(opts or {}, quiet=True, check_formats=False)
     logger.info("Downloading info for: %s", url)
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -101,10 +166,11 @@ def post_download(
     download_slot: BoundedSemaphore | None = None,
     allow_adds: bool = False,
     url: str | None = None,
+    pin: TmdbPin | None = None,
 ) -> bool:
     title = dl_path.stem
     logger.info("Finished Download: %s", title)
-    media_name = resolve_media_name(title, overrides, allow_adds=allow_adds)
+    media_name = resolve_media_name(title, overrides, allow_adds=allow_adds, pin=pin)
     if media_name is None:
         with stats._lock:
             stats.unresolved += 1
@@ -113,6 +179,8 @@ def post_download(
         return False
     with stats._lock:
         stats.resolved += 1
+    # The UI labels this item with the matched media rather than the URL.
+    tracker.resolved(url or "", media_name)
     sub_paths = [
         path
         for path in dl_path.parent.glob(f"{globmod.escape(title)}.*.*")
@@ -121,21 +189,7 @@ def post_download(
         and path.suffix.lower() not in VIDEO_EXTS | {".part", ".ytdl"}
     ]
     dest = folders.media_dir / f"{media_name}.en.srt"
-    converted = False
-    for file in sub_paths:
-        if converted:
-            logger.warning("Skipping extra subtitle %s (already have %s)", file.name, dest.name)
-            continue
-        try:
-            convert_file(file, dest)
-            converted = True
-        except Exception as e:  # noqa: BLE001 - one bad subtitle must not kill the pipeline
-            logger.error(
-                "Subtitle conversion failed for %s: %s: %s",
-                file.name,
-                type(e).__name__,
-                e,
-            )
+    convert_first_subtitle(sub_paths, dest)
     q.put(
         Task(
             input_file=dl_path,
@@ -148,6 +202,113 @@ def post_download(
     return True
 
 
+def post_download_subtitles_only(
+    folders: Folders,
+    expected: Path,
+    overrides: dict,
+    stats: Stats,
+    opts: dict,
+    allow_adds: bool = False,
+    url: str | None = None,
+    pin: TmdbPin | None = None,
+    min_mtime: float | None = None,
+) -> None:
+    """Resolve, convert and file subtitles when media download was skipped.
+
+    Used when ``skip_download`` is set: there is no video to transcode, so
+    the subtitle is converted straight to ``media_dir`` and the item is
+    marked completed synchronously (no transcode task is queued).
+    """
+    title = expected.stem
+    logger.info("Finished subtitles-only download: %s", title)
+    if not opts.get("writesubtitles") and not opts.get("writeautomaticsubs"):
+        logger.error(
+            "skip_download is set but neither writesubtitles nor "
+            "writeautomaticsubs is enabled for %s",
+            title,
+        )
+        with stats._lock:
+            stats.failed += 1
+        tracker.completed_task(url or "", ok=False)
+        return
+    sub_paths = find_subtitle_files(expected.parent, title, min_mtime=min_mtime)
+    if not sub_paths:
+        logger.error("No subtitles downloaded for %s", expected)
+        with stats._lock:
+            stats.failed += 1
+        tracker.completed_task(url or "", ok=False)
+        return
+    media_name = resolve_media_name(title, overrides, allow_adds=allow_adds, pin=pin)
+    if media_name is None:
+        with stats._lock:
+            stats.unresolved += 1
+        tracker.unresolved(url or "", title)
+        logger.error("No match found in Sonarr/Radarr/TMDb for %s", title)
+        return
+    with stats._lock:
+        stats.resolved += 1
+    tracker.resolved(url or "", media_name)
+    dest = folders.media_dir / f"{media_name}.en.srt"
+    if not convert_first_subtitle(sub_paths, dest):
+        with stats._lock:
+            stats.failed += 1
+        tracker.completed_task(url or "", ok=False)
+        return
+    _cleanup_extra_subtitles(sub_paths, dest.name)
+    with stats._lock:
+        stats.completed += 1
+    tracker.completed_task(url or "", ok=True)
+
+
+def post_download_cbc_subtitles_only(
+    info: dict,
+    expected: Path,
+    folders: Folders,
+    media_type: str,
+    stats: Stats,
+    opts: dict,
+    progress_url: str | None = None,
+    min_mtime: float | None = None,
+) -> None:
+    """CBC equivalent of :func:`post_download_subtitles_only`."""
+    title = expected.stem
+    logger.info("Finished subtitles-only download: %s", title)
+    if not opts.get("writesubtitles") and not opts.get("writeautomaticsubs"):
+        logger.error(
+            "skip_download is set but neither writesubtitles nor "
+            "writeautomaticsubs is enabled for %s",
+            title,
+        )
+        with stats._lock:
+            stats.failed += 1
+        tracker.completed_task(progress_url or info.get("webpage_url") or "", ok=False)
+        return
+    sub_paths = find_subtitle_files(expected.parent, title, min_mtime=min_mtime)
+    if not sub_paths:
+        logger.error("No subtitles downloaded for %s", expected)
+        with stats._lock:
+            stats.failed += 1
+        tracker.completed_task(progress_url or info.get("webpage_url") or "", ok=False)
+        return
+    try:
+        media_path = expected.relative_to(folders.download_dir.resolve())
+    except ValueError:
+        media_path = Path(expected.name)
+    url = progress_url or info.get("webpage_url") or ""
+    tracker.resolved(url, f"{media_type}/{media_path.with_suffix('')}")
+    dest = folders.media_dir / media_type / media_path.with_suffix(".en.srt")
+    if not convert_first_subtitle(sub_paths, dest):
+        with stats._lock:
+            stats.failed += 1
+        tracker.completed_task(url, ok=False)
+        return
+    _cleanup_extra_subtitles(sub_paths, dest.name)
+    with stats._lock:
+        stats.resolved += 1
+        stats.completed += 1
+    tracker.completed_task(url, ok=True)
+
+
 def download_cbc(
     info: dict,
     opts: dict,
@@ -156,8 +317,20 @@ def download_cbc(
     stats: Stats,
     download_slots: BoundedSemaphore | None = None,
     progress_url: str | None = None,
+    pin: TmdbPin | None = None,
 ) -> None:
     opts = dict(opts)
+    if pin is not None:
+        # CBC paths come straight from CBC metadata, not the TMDb/Sonarr
+        # resolver chain, so a pinned TMDb id can never apply. Warn rather
+        # than silently ignoring it.
+        logger.warning(
+            "Ignoring metadata override %s:%s for CBC item %s: "
+            "CBC paths use CBC metadata directly",
+            pin.kind,
+            pin.id,
+            info.get("webpage_url") or info.get("title"),
+        )
     if info["title"] == "Trailer":
         with stats._lock:
             stats.skipped += 1
@@ -185,8 +358,24 @@ def download_cbc(
     start_mtime = time.time()
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([info["webpage_url"]])
+            # Reuse the already-extracted entry instead of re-extracting by
+            # URL: saves a full extra info round-trip per episode. The entry
+            # already carries requested formats/subtitles from get_info,
+            # which used the same format/subtitle opts.
+            ydl.process_ie_result(dict(info), download=True)
             expected = Path(ydl.prepare_filename(info))
+            if is_subtitles_only(opts):
+                post_download_cbc_subtitles_only(
+                    info,
+                    expected,
+                    folders,
+                    media_type,
+                    stats,
+                    opts,
+                    progress_url,
+                    min_mtime=start_mtime,
+                )
+                return
             dl_path = find_downloaded_file(
                 expected,
                 preferred_ext=info.get("ext"),
@@ -199,6 +388,12 @@ def download_cbc(
                 media_path = dl_path.relative_to(folders.download_dir.resolve())
             except ValueError:
                 media_path = Path(dl_path.name)
+            # Label the item with the matched media rather than the URL, same
+            # as the BBC path does via post_download.
+            tracker.resolved(
+                progress_url or info["webpage_url"],
+                f"{media_type}/{media_path.with_suffix('')}",
+            )
             q.put(
                 Task(
                     input_file=dl_path,
@@ -226,6 +421,7 @@ def download_generic(
     download_slots: BoundedSemaphore | None = None,
     allow_adds: bool = False,
     progress_url: str | None = None,
+    pin: TmdbPin | None = None,
 ) -> None:
     opts = dict(opts)
     opts["outtmpl"] = "%(title)s.%(ext)s"
@@ -234,8 +430,23 @@ def download_generic(
     start_mtime = time.time()
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([entry["webpage_url"]])
+            # See download_cbc: process the extracted entry in place rather
+            # than downloading by URL and paying for a second extraction.
+            ydl.process_ie_result(dict(entry), download=True)
             expected = Path(ydl.prepare_filename(entry))
+            if is_subtitles_only(opts):
+                post_download_subtitles_only(
+                    folders,
+                    expected,
+                    overrides,
+                    stats,
+                    opts,
+                    allow_adds,
+                    progress_url,
+                    pin,
+                    min_mtime=start_mtime,
+                )
+                return
             dl_path = find_downloaded_file(
                 expected,
                 preferred_ext=entry.get("ext"),
@@ -253,6 +464,7 @@ def download_generic(
                 download_slots,
                 allow_adds,
                 progress_url,
+                pin,
             )
     finally:
         if not queued:
@@ -269,10 +481,11 @@ def download(
     download_slots: BoundedSemaphore | None = None,
     allow_adds: bool = False,
     progress_url: str | None = None,
+    pin: TmdbPin | None = None,
 ) -> None:
     opts = dict(opts)
     if str(entry["webpage_url"]).startswith("https://gem.cbc.ca"):
-        download_cbc(entry, opts, q, folders, stats, download_slots, progress_url)
+        download_cbc(entry, opts, q, folders, stats, download_slots, progress_url, pin)
     else:
         download_generic(
             entry,
@@ -284,6 +497,7 @@ def download(
             download_slots,
             allow_adds,
             progress_url,
+            pin,
         )
 
 
@@ -300,6 +514,7 @@ def download_url(
     download_slots: BoundedSemaphore | None = None,
     allow_adds: bool = False,
     progress_url: str | None = None,
+    pin: TmdbPin | None = None,
     _depth: int = 0,
     _visited: set[str] | None = None,
 ):
@@ -354,6 +569,7 @@ def download_url(
                     download_slots,
                     allow_adds,
                     progress_url,
+                    pin,
                 )
             elif entry.get("webpage_url"):
                 next_url = entry["webpage_url"]
@@ -373,6 +589,7 @@ def download_url(
                     download_slots,
                     allow_adds,
                     progress_url,
+                    pin,
                     _depth + 1,
                     _visited,
                 )

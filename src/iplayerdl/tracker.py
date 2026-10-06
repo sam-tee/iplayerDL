@@ -12,6 +12,7 @@ def _new_job(url: str) -> dict:
         "eps_done": 0,
         "ep": 0,
         "has_failed": False,
+        "title": "",
     }
 
 
@@ -24,9 +25,32 @@ class Tracker:
         self._cancelled: set[str] = set()
 
     def reset(self, urls: list[str]) -> None:
+        """Start a new run, keeping any cancellations already requested.
+
+        A cancel can land between the queue being claimed and the pipeline
+        thread starting; dropping it here would silently download an item the
+        user just cancelled. Cancellations for URLs outside this run are
+        forgotten so they do not leak into the next one.
+
+        Note that a cancellation is consumed by the run it applies to (see
+        forget), so retrying a cancelled item later still downloads it.
+        """
         with self._lock:
-            self._cancelled.clear()
+            keep = self._cancelled.intersection(urls)
+            self._cancelled = set(keep)
             self._jobs = {url: _new_job(url) for url in urls}
+            for url in keep:
+                self._jobs[url]["status"] = "cancelled"
+
+    def forget(self, url: str) -> None:
+        """Drop a cancellation once the item it applied to has settled.
+
+        Without this the URL would stay cancelled forever, and a later retry
+        of the same item (same process, e.g. the long-lived web server) would
+        be discarded without ever being downloaded.
+        """
+        with self._lock:
+            self._cancelled.discard(url)
 
     def _update(self, url: str, **fields) -> None:
         with self._lock:
@@ -103,6 +127,20 @@ class Tracker:
             percent=None,
             detail=f"No match found for {title}" if title else "",
         )
+
+    def resolved(self, url: str, media_name: str) -> None:
+        """Record the media path metadata resolved to, once per URL.
+
+        A series resolves separately for every episode; the first one names the
+        show, which is the useful label, so later ones do not overwrite it.
+        """
+        if not url or not media_name:
+            return
+        with self._lock:
+            job = self._jobs.setdefault(url, _new_job(url))
+            if url in self._cancelled or job["title"]:
+                return
+            job["title"] = media_name
 
     def transcoding(
         self, url: str, percent: float | None = None, detail: str = ""
